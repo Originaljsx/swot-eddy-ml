@@ -46,7 +46,7 @@ vorticity, Okubo-Weiss) · "beyond-PET" recall recovery.
 | Input channels | **2: SSHA (anomaly) + ADT (= SSHA + MDT)** — ADT shows the front |
 | Output geometry | **Bounding boxes** (YOLO) |
 | Classes | **3: anticyclonic eddy · cyclonic eddy · frontal cyclonic eddy** |
-| "Frontal" assignment | **Front-proximity heuristic** (see §5) — automatic, tunable |
+| "Frontal" assignment | **Provisional front-proximity tag** (§5) — coarse, tunable, revisable |
 | Labeler | **PET** (de Marez params), per inpainted tile; polarity → class for free |
 | Model | **YOLOv8** (Ultralytics), Colab GPU, checkpoint→Drive |
 | Splits | **By cycle: train / calibration / test** (calibration needed for conformal) |
@@ -83,14 +83,16 @@ PET (Mason 2014, via `pyEddyTracker`) runs **per inpainted tile**, de Marez para
 
 PET returns polarity directly:
 - **anticyclonic eddy** ← PET anticyclonic.
-- **cyclonic eddy** ← PET cyclonic, *not* front-attached.
-- **frontal cyclonic eddy** ← PET cyclonic *and* front-attached.
+- **cyclonic eddy** ← PET cyclonic, not flagged frontal.
+- **frontal cyclonic eddy** ← PET cyclonic + frontal tag below.
 
-**Front-proximity heuristic (the one assumption — tunable, flagged):**
-define the front as the high-speed jet from geostrophic velocity
-`speed = √(ugos² + vgos²)` (threshold, or the speed-max ridge). A cyclonic eddy whose
-center lies within **~N km** of the front → `frontal cyclonic`, else `cyclonic`.
-`N` and the speed threshold are swept/tuned in P2 and logged.
+**Frontal tag (provisional, light-touch):** geostrophic speed
+`speed = √(ugos² + vgos²)` comes directly from the product's `ugos_filtered` /
+`vgos_filtered` (no SSH differentiation). Flag a cyclonic eddy `frontal cyclonic` if its
+center sits near the high-speed jet (within ~N km of the speed-max ridge). This is a
+coarse provisional split for convenience, not a claim about frontal dynamics — `N` and the
+speed threshold are tuned in P2, and the tag can be revisited or hand-corrected later.
+Speed is used *only* for this tag, not as a model input channel.
 
 PET boxes (axis-aligned bounding box of each eddy contour) + class → YOLO labels.
 
@@ -124,8 +126,8 @@ metrics per side rather than blindly mixing.
 
 ## 8. Model — YOLOv8
 
-- Ultralytics YOLOv8 (start `m` or `l`), 2-channel input (SSHA, ADT) — adapt the input
-  stem to 2 channels (or render to a 3-channel image: SSHA, ADT, ADT-gradient).
+- Ultralytics YOLOv8 (start `m` or `l`), **2-channel input (SSHA, ADT)** — adapt the
+  first conv stem to 2 channels (init from pretrained RGB weights by averaging/slicing).
 - Train on Colab GPU; **checkpoint to Drive + resume** (Colab times out).
 - Augment: rotations/flips (ocean has no canonical orientation).
 - Raise YOLO `patience` well above default (Bardi: it early-stops ~epoch 30 otherwise).
