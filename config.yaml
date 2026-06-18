@@ -10,6 +10,11 @@ paths:
     out_root:  "/content/drive/MyDrive/swot-eddy-ml/out"
 
 region:           # study box; lon negative = West, lat positive = North
+  # NOTE (observed from real v3.0 files): source longitude is stored in the
+  # 0..360 convention (Gulf Stream ~278..291), NOT -180..180. P1 cropping MUST
+  # normalize before selecting, e.g. lon360 = lon_min % 360 / lon_max % 360,
+  # or convert the data to -180..180. A naive sel(lon=slice(-82,-69)) on raw
+  # 0..360 data silently returns zero points.
   lat_min: 23
   lat_max: 42
   lon_min: -82
