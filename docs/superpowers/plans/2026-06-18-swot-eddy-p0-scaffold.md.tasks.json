@@ -1,0 +1,26 @@
+{
+  "planPath": "docs/superpowers/plans/2026-06-18-swot-eddy-p0-scaffold.md",
+  "tasks": [
+    {
+      "id": 0,
+      "subject": "Task 0: Repo skeleton, config.yaml, config loader",
+      "status": "pending",
+      "description": "**Goal:** A src/swot_eddy package, an editable install, and config.yaml + config.py that load config and resolve Windows<->Colab paths.\n\n**Files:** Create pyproject.toml, config.yaml, src/swot_eddy/__init__.py, src/swot_eddy/config.py; Test tests/test_config.py.\n\n**Acceptance Criteria:** pip install -e . then import swot_eddy works; load_config windows/colab return matching roots; region box 23/42/-82/-69; variable_map returns v3.0 names; SWOT_EDDY_ENV overrides platform.\n\n**Verify:** pip install -e . && pytest tests/test_config.py -v\n\n```json:metadata\n{\"files\": [\"pyproject.toml\", \"config.yaml\", \"src/swot_eddy/__init__.py\", \"src/swot_eddy/config.py\", \"tests/test_config.py\"], \"verifyCommand\": \"pip install -e . && pytest tests/test_config.py -v\", \"acceptanceCriteria\": [\"pip install -e . then import swot_eddy works\", \"load_config windows/colab return matching roots\", \"region box 23/42/-82/-69\", \"variable_map returns v3.0 names\", \"SWOT_EDDY_ENV overrides platform\"]}\n```"
+    },
+    {
+      "id": 1,
+      "subject": "Task 1: Conda env + pyEddyTracker install + pin pet_version",
+      "status": "pending",
+      "blockedBy": [0],
+      "description": "**Goal:** A reproducible env that installs pyEddyTracker per its docs, plus python -m swot_eddy.pet_version that writes the installed version into config.yaml.\n\n**Files:** Create environment.yml, src/swot_eddy/pet_version.py; Test tests/test_pet_version.py.\n\n**Acceptance Criteria:** conda env builds and py_eddy_tracker imports cleanly; set_pet_version_in_text replaces null/existing line and raises if absent; python -m swot_eddy.pet_version pins real version into config.yaml.\n\n**Verify:** pytest tests/test_pet_version.py -v ; then (in env) python -m swot_eddy.pet_version\n\n```json:metadata\n{\"files\": [\"environment.yml\", \"src/swot_eddy/pet_version.py\", \"tests/test_pet_version.py\", \"config.yaml\"], \"verifyCommand\": \"pytest tests/test_pet_version.py -v\", \"acceptanceCriteria\": [\"conda env builds and py_eddy_tracker imports cleanly\", \"set_pet_version_in_text replaces null/existing line and raises if absent\", \"python -m swot_eddy.pet_version pins real version into config.yaml\"]}\n```"
+    },
+    {
+      "id": 2,
+      "subject": "Task 2: SWOT .nc inspection script",
+      "status": "pending",
+      "blockedBy": [0],
+      "description": "**Goal:** swot_eddy.inspect_nc summarizes a SWOT L3 file (variables/dims, key attrs, quality_flag values/meanings, temporality, lon/lat extent), printed and optionally saved.\n\n**Files:** Create src/swot_eddy/inspect_nc.py; Test tests/test_inspect_nc.py.\n\n**Acceptance Criteria:** inspect_dataset returns dims/vars/attrs/quality_flag/lon-lat extent; CLI prints summary and writes JSON with --out; real example file prints product_version 3.0 + temporality + quality_flag meanings + region extents.\n\n**Verify:** pytest tests/test_inspect_nc.py -v ; then python -m swot_eddy.inspect_nc --file \"<example>\" --out out/inspect_002_091.json\n\n```json:metadata\n{\"files\": [\"src/swot_eddy/inspect_nc.py\", \"tests/test_inspect_nc.py\"], \"verifyCommand\": \"pytest tests/test_inspect_nc.py -v\", \"acceptanceCriteria\": [\"inspect_dataset returns dims/vars/attrs/quality_flag/lon-lat extent\", \"CLI prints summary and writes JSON with --out\", \"real example file prints product_version 3.0 + temporality + quality_flag meanings + region extents\"]}\n```"
+    }
+  ],
+  "lastUpdated": "2026-06-18"
+}
