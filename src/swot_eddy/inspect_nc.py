@@ -63,7 +63,8 @@ def main(argv: "list[str] | None" = None) -> int:
     path = args.file
     if path is None:
         from swot_eddy.config import load_config
-        path = load_config()["example_file"]
+        cfg = load_config()
+        path = str(Path(cfg["data_root"]) / cfg["example_file"])
 
     with xr.open_dataset(path) as ds:
         summary = inspect_dataset(ds)

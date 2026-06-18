@@ -1,10 +1,14 @@
 # SWOT Gulf Stream eddy-detection baseline — project config.
-# Paths are resolved per platform in src/swot_eddy/config.py (Windows <-> Colab).
+# Paths are resolved per platform in src/swot_eddy/config.py (windows / wsl / colab,
+# auto-detected; override with the SWOT_EDDY_ENV env var).
 
 paths:
-  windows:
+  windows:        # native Windows (Python from cmd/PowerShell)
     data_root: "C:/Users/jspier/Data/SWOT/SWOT_L3_GulfStream"
     out_root:  "C:/Users/jspier/SWOT-eddy-ml/out"
+  wsl:            # WSL bash sees the Windows C: drive under /mnt/c
+    data_root: "/mnt/c/Users/jspier/Data/SWOT/SWOT_L3_GulfStream"
+    out_root:  "/mnt/c/Users/jspier/SWOT-eddy-ml/out"
   colab:
     data_root: "/content/drive/MyDrive/SWOT_L3_GulfStream"
     out_root:  "/content/drive/MyDrive/swot-eddy-ml/out"
@@ -36,7 +40,7 @@ tiling:
   pad_to: 128     # across-track NaN-pad target width
 
 pet:
-  pet_version: null        # pinned by `python -m swot_eddy.pet_version` (Task 1)
+  pet_version: "0+untagged.754.g229543f"
   params:
     shape_error: 85
     min_radius_km: 5
@@ -45,5 +49,6 @@ pet:
     gap_reject_frac_nadir: 0.60
     high_pass_km: null     # PET detection high-pass; swept in P2
 
-# Example file for the inspection script (Task 2). On WSL use /mnt/c/... instead of C:/...
-example_file: "C:/Users/jspier/Data/SWOT/SWOT_L3_GulfStream/cycle_002/SWOT_L3_LR_SSH_Expert_002_091_20230814T072907_20230814T082033_v3.0.nc"
+# Example file for the inspection script (Task 2), RELATIVE to the active platform's
+# data_root (so it resolves correctly on windows / wsl / colab without editing).
+example_file: "cycle_002/SWOT_L3_LR_SSH_Expert_002_091_20230814T072907_20230814T082033_v3.0.nc"

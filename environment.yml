@@ -12,4 +12,6 @@ dependencies:
   - pyyaml
   - pytest
   - pip:
-      - pyEddyTracker
+      # PyPI pyEddyTracker (3.6.1) pins numpy<1.23 / numba<0.56 / netCDF4<1.6 and is
+      # uninstallable on Python >=3.12. Install the maintained GitHub master instead.
+      - "git+https://github.com/AntSimi/py-eddy-tracker.git"

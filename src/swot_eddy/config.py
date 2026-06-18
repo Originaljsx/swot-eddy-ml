@@ -12,12 +12,14 @@ CONFIG_PATH = Path(__file__).resolve().parents[2] / "config.yaml"
 
 
 def detect_platform() -> str:
-    """Return 'windows' or 'colab'. SWOT_EDDY_ENV overrides; else auto-detect."""
+    """Return 'windows', 'colab', or 'wsl'. SWOT_EDDY_ENV overrides; else auto-detect."""
     env = os.environ.get("SWOT_EDDY_ENV", "").strip().lower()
-    if env in {"windows", "colab"}:
+    if env in {"windows", "colab", "wsl"}:
         return env
     if Path("/content/drive").exists():  # Colab mounts Drive here
         return "colab"
+    if Path("/mnt/c").exists():          # WSL exposes the Windows C: drive here
+        return "wsl"
     return "windows"
 
 

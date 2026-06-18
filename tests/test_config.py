@@ -7,6 +7,9 @@ paths:
   windows:
     data_root: "C:/data"
     out_root: "C:/out"
+  wsl:
+    data_root: "/mnt/c/data"
+    out_root: "/mnt/c/out"
   colab:
     data_root: "/content/drive/MyDrive/data"
     out_root: "/content/drive/MyDrive/out"
@@ -34,6 +37,11 @@ def test_windows_paths(sample_config):
 def test_colab_paths(sample_config):
     c = cfg_mod.load_config(sample_config, platform="colab")
     assert c["data_root"] == "/content/drive/MyDrive/data"
+
+def test_wsl_paths(sample_config):
+    c = cfg_mod.load_config(sample_config, platform="wsl")
+    assert c["data_root"] == "/mnt/c/data"
+    assert c["platform"] == "wsl"
 
 def test_region_box(sample_config):
     c = cfg_mod.load_config(sample_config, platform="windows")
