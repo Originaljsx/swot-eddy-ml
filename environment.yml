@@ -1,0 +1,15 @@
+name: swot-eddy
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - numpy
+  - scipy
+  - xarray
+  - netcdf4
+  - matplotlib
+  - pyyaml
+  - pytest
+  - pip:
+      - pyEddyTracker
