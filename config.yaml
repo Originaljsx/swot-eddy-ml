@@ -28,11 +28,17 @@ product:
   product_version: "3.0"
   variables:      # version-aware variable-name map, keyed on product_version
     "3.0":
-      ssha: "ssha_filtered"
+      ssha: "ssha_filtered"          # detection channel (denoised, what PET runs on)
+      ssha_adt_base: "ssha_unedited" # ADT base SSHA: ADT = ssha_unedited + mdt (matches reference figures)
       mdt: "mdt"
       ugos: "ugos_filtered"
       vgos: "vgos_filtered"
       quality_flag: "quality_flag"
+  # quality_flag is CATEGORICAL (0=good, 3=eclipse, 5=local_outliers, 10=bad_coast,
+  # 18/19=unsure, 20=ice, 25=rain, 30=soft_outliers, 50=extremes, 70=mission_event,
+  # 100=bad_swath_extremities, 101=not_on_sea, 102=no_data). Keep pixels with
+  # quality_flag <= quality_max; worse pixels -> NaN -> biharmonic-inpaint fills them.
+  quality_max: 3
 
 tiling:
   tile_size: 128
@@ -42,12 +48,17 @@ tiling:
 pet:
   pet_version: "0+untagged.754.g229543f"
   params:
-    shape_error: 85
-    min_radius_km: 5
+    shape_error: 85        # de Marez et al. (2026): 85% maximizes detections
+    min_radius_km: 5       # on R_max (speed radius), per paper
     min_amplitude_m: 0.01
-    gap_reject_frac: 0.40
-    gap_reject_frac_nadir: 0.60
-    high_pass_km: null     # PET detection high-pass; swept in P2
+    gap_reject_frac: 0.40       # reject if >40% of speed contour overlaps gaps (paper)
+    gap_reject_frac_nadir: 0.60 # relaxed tolerance when center sits in the nadir gap (paper)
+    # PET pixel_limit (min,max) pixels inside contour. Paper uses PET-standard (4,1000);
+    # we lower min to 3 for higher small-eddy recall (rejected by hand later). Set 4/1000
+    # to match de Marez exactly.
+    pixel_limit_min: 3
+    pixel_limit_max: 2000
+    high_pass_km: null     # NO high-pass / detrending (paper runs on filtered SLA as-is)
 
 # Example file for the inspection script (Task 2), RELATIVE to the active platform's
 # data_root (so it resolves correctly on windows / wsl / colab without editing).

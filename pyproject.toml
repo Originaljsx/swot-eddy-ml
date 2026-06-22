@@ -6,7 +6,9 @@ build-backend = "setuptools.build_meta"
 name = "swot-eddy"
 version = "0.0.1"
 requires-python = ">=3.10"
-dependencies = ["pyyaml", "xarray", "netcdf4", "numpy"]
+# numpy pinned <2: py-eddy-tracker / numba / matplotlib in this env are built against
+# numpy 1.x (P0 resolved numpy 1.26.4). scikit-image 0.24.x supports numpy 1.x.
+dependencies = ["pyyaml", "xarray", "netcdf4", "numpy<2", "scikit-image==0.24.0"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
