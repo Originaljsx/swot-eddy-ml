@@ -35,6 +35,13 @@ def load_config(path: "os.PathLike | str | None" = None,
     cfg["platform"] = plat
     cfg["data_root"] = cfg["paths"][plat]["data_root"]
     cfg["out_root"] = cfg["paths"][plat]["out_root"]
+    # Single source of truth = the GS_AOI5 polygon. Derive the crop envelope from it and
+    # OVERWRITE cfg['region'] so every existing crop_to_region/region_mask caller uses the
+    # AOI5 envelope unchanged. Detections are filtered to the true polygon separately via
+    # aoi.load_aoi(cfg).contains(...). Falls back to the yaml region if cfg['aoi'] is absent.
+    if "aoi" in cfg:
+        from swot_eddy.aoi import load_aoi
+        cfg["region"] = load_aoi(cfg).envelope_region()
     return cfg
 
 

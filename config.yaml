@@ -13,16 +13,21 @@ paths:
     data_root: "/content/drive/MyDrive/SWOT_L3_GulfStream"
     out_root:  "/content/drive/MyDrive/swot-eddy-ml/out"
 
-region:           # study box; lon negative = West, lat positive = North
-  # NOTE (observed from real v3.0 files): source longitude is stored in the
-  # 0..360 convention (Gulf Stream ~278..291), NOT -180..180. P1 cropping MUST
-  # normalize before selecting, e.g. lon360 = lon_min % 360 / lon_max % 360,
-  # or convert the data to -180..180. A naive sel(lon=slice(-82,-69)) on raw
-  # 0..360 data silently returns zero points.
-  lat_min: 23
-  lat_max: 42
-  lon_min: -82
-  lon_max: -69
+aoi:              # GS_AOI5 polygon (concave; clips SE open ocean, keeps Gulf Stream + inland).
+  # Single source of truth for the study area. load_config() derives the crop ENVELOPE
+  # (region, below) from this polygon; detections are filtered to the true polygon by
+  # center point-in-polygon (src/swot_eddy/aoi.py). See docs/.../2026-06-25-aoi5-*-design.md.
+  windows: "C:/Users/jspier/Bbox/GS_AOI5.json"
+  wsl:     "/mnt/c/Users/jspier/Bbox/GS_AOI5.json"
+  colab:   "/content/drive/MyDrive/Bbox/GS_AOI5.json"
+
+region:           # SUPERSEDED by aoi: load_config() OVERWRITES this with the AOI5 polygon
+  # envelope at runtime. Values below are only a fallback if cfg['aoi'] is absent.
+  # NOTE: source longitude is 0..360 (Gulf Stream ~278..291); region_mask normalizes via %360.
+  lat_min: 23.5137
+  lat_max: 42.6863
+  lon_min: -82.4787
+  lon_max: -69.1456
 
 product:
   product_version: "3.0"
@@ -33,12 +38,16 @@ product:
       mdt: "mdt"
       ugos: "ugos_filtered"
       vgos: "vgos_filtered"
+      ugosa: "ugosa_filtered"        # geostrophic velocity ANOMALY (zonal); VIZ/vetting only
+      vgosa: "vgosa_filtered"        # geostrophic velocity ANOMALY (meridional); VIZ/vetting only
       quality_flag: "quality_flag"
   # quality_flag is CATEGORICAL (0=good, 3=eclipse, 5=local_outliers, 10=bad_coast,
   # 18/19=unsure, 20=ice, 25=rain, 30=soft_outliers, 50=extremes, 70=mission_event,
-  # 100=bad_swath_extremities, 101=not_on_sea, 102=no_data). Keep pixels with
-  # quality_flag <= quality_max; worse pixels -> NaN -> biharmonic-inpaint fills them.
-  quality_max: 3
+  # 100=bad_swath_extremities, 101=not_on_sea, 102=no_data).
+  # FAITHFUL to de Marez: NO extra quality masking. Use ssha_filtered as the product
+  # provides it and biharmonic-inpaint only its EXISTING NaN gaps (nadir, rain, etc.).
+  # quality_max=null -> compute_channels skips the qf mask. (Was 3; dropped for fidelity.)
+  quality_max: null
 
 tiling:
   tile_size: 128
@@ -53,13 +62,12 @@ pet:
     min_amplitude_m: 0.01
     gap_reject_frac: 0.40       # reject if >40% of speed contour overlaps gaps (paper)
     gap_reject_frac_nadir: 0.60 # relaxed tolerance when center sits in the nadir gap (paper)
-    # PET pixel_limit (min,max) pixels inside contour. Paper uses PET-standard (4,1000);
-    # we lower min to 3 for higher small-eddy recall (rejected by hand later). Set 4/1000
-    # to match de Marez exactly.
-    pixel_limit_min: 3
-    pixel_limit_max: 2000
+    nadir_reject_frac: 0.70     # DROP if >=70% of eddy AREA sits in the nadir gap (biharmonic-invented)
+    # PET pixel_limit (min,max) pixels inside contour. de Marez = PET-standard (4,1000).
+    pixel_limit_min: 4
+    pixel_limit_max: 1000
     high_pass_km: null     # NO high-pass / detrending (paper runs on filtered SLA as-is)
 
 # Example file for the inspection script (Task 2), RELATIVE to the active platform's
 # data_root (so it resolves correctly on windows / wsl / colab without editing).
-example_file: "cycle_002/SWOT_L3_LR_SSH_Expert_002_091_20230814T072907_20230814T082033_v3.0.nc"
+example_file: "cycle_043/SWOT_L3_LR_SSH_Expert_043_410_20251228T034857_20251228T044023_v3.0.nc"

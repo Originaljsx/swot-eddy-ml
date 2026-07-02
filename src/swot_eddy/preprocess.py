@@ -161,6 +161,35 @@ def preprocess_pass(ds_or_path, cfg: dict) -> "tuple[list[Tile], dict, np.ndarra
             opened.close()
 
 
+def swath_edge_cols(ds: xr.Dataset, gap_half_km: float = 10.0) -> "list[int]":
+    """The 4 across-track edge columns of a SWOT pass, from `cross_track_distance` [km]:
+    [left outer, left inner (nadir-gap border), right inner, right outer]. The two inner
+    lines bracket the central nadir gap (|cross_track| < gap_half_km); the outer two are the
+    data edges. Native (un-padded) pixel indices."""
+    xt = np.asarray(ds["cross_track_distance"].values, dtype="float64")   # km, (num_pixels,)
+    n = xt.shape[0]
+    left_inner = int(np.where((xt < 0) & (np.abs(xt) >= gap_half_km))[0].max())
+    right_inner = int(np.where((xt > 0) & (np.abs(xt) >= gap_half_km))[0].min())
+    return [0, left_inner, right_inner, n - 1]
+
+
+def geostrophic_anomaly_uv(ds: xr.Dataset, var_map: dict) -> "tuple[np.ndarray, np.ndarray]":
+    """Native (u, v) geostrophic velocity ANOMALY components [m/s] = (ugosa, vgosa).
+    Raw (NaN in gaps) so quiver vectors appear ONLY on real observations -- a real eddy
+    shows closed rotation in the arrows; an inpainted blob has no vectors. VIZ/vetting only."""
+    u = ds[var_map["ugosa"]].values.astype("float64")
+    v = ds[var_map["vgosa"]].values.astype("float64")
+    return u, v
+
+
+def geostrophic_speed_anomaly(ds: xr.Dataset, var_map: dict) -> np.ndarray:
+    """Native (num_lines, num_pixels) geostrophic SPEED anomaly = hypot(ugosa, vgosa) [m/s].
+    Eddies show as bright rings of rotational speed. VIZ/vetting ONLY -- detection is
+    unchanged (PET is a height-contour detector and derives its own u,v from the SLA)."""
+    u, v = geostrophic_anomaly_uv(ds, var_map)
+    return np.hypot(u, v)
+
+
 def tile_pixel_lonlat(tile: Tile, i: int, j: int,
                       cropped_lon: np.ndarray, cropped_lat: np.ndarray):
     """Map an in-tile pixel (along-track i, across-track j incl. pad) back to source

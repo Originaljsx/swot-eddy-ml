@@ -46,6 +46,8 @@ class Detection:
     contour_lonlat: list                       # [(lon, lat) | None, ...] speed contour geo
     gap_frac: float                            # fraction of speed-contour pixels that were inpainted
     gap_reject: bool                           # paper criterion: gap_frac > thresh (0.40, 0.60 at nadir)
+    nadir_frac: float                          # fraction of enclosed area sitting in the nadir gap columns
+    nadir_reject: bool                         # nadir_frac >= nadir_reject_frac -> biharmonic-invented eddy, DROP
     center_in_nadir: bool                      # center sits in the central nadir gap band
     source_tile: int                           # tile index it was detected in (pre-dedup)
     edge_dist: int                             # min pixel distance of center to its tile edge
@@ -59,10 +61,11 @@ def _pet_params(cfg: dict) -> dict:
     return {
         "step": p["min_amplitude_m"] / 2.0,    # nb_step_min=2 -> amplitude floor = min_amplitude_m
         "shape_error": p["shape_error"],       # 85
-        "pixel_limit": (p.get("pixel_limit_min", 3), p.get("pixel_limit_max", 2000)),
+        "pixel_limit": (p.get("pixel_limit_min", 4), p.get("pixel_limit_max", 1000)),
         "min_radius_km": p["min_radius_km"],   # post-filter on R_max (radius_s)
         "gap_reject_frac": p["gap_reject_frac"],
         "gap_reject_frac_nadir": p["gap_reject_frac_nadir"],
+        "nadir_reject_frac": p.get("nadir_reject_frac", 0.70),  # drop if >= this much of area in nadir
     }
 
 
@@ -129,12 +132,39 @@ def _contour_gap_frac(contour_ij: list, mask_ssha: np.ndarray) -> float:
     return float(mask_ssha[enclosed[:, 1], enclosed[:, 0]].mean())
 
 
+def _contour_nadir_frac(contour_ij: list, nadir_cols: set, h: int, w: int) -> float:
+    """Fraction of pixels enclosed by a contour that sit in the central nadir-gap columns.
+    Biharmonic inpainting fabricates smooth blobs in the nadir; an eddy whose area is mostly
+    inside the nadir is invented, not observed -> drop it."""
+    from matplotlib.path import Path
+
+    if len(contour_ij) < 3 or not nadir_cols:
+        return 0.0
+    ij = np.asarray(contour_ij, dtype="f8")          # (N, 2) = (i row, j col)
+    i0, i1 = int(np.floor(ij[:, 0].min())), int(np.ceil(ij[:, 0].max())) + 1
+    j0, j1 = int(np.floor(ij[:, 1].min())), int(np.ceil(ij[:, 1].max())) + 1
+    i0, i1 = max(0, i0), min(h, i1)
+    j0, j1 = max(0, j0), min(w, j1)
+    if i1 <= i0 or j1 <= j0:
+        return 0.0
+    rr, cc = np.mgrid[i0:i1, j0:j1]
+    pts = np.column_stack([cc.ravel(), rr.ravel()])  # (x=col, y=row)
+    path = Path(np.column_stack([ij[:, 1], ij[:, 0]]))
+    inside = path.contains_points(pts)
+    if not inside.any():
+        return 0.0
+    cols = pts[inside][:, 0]                          # enclosed pixel columns
+    return float(np.isin(cols, np.fromiter(nadir_cols, dtype=int)).mean())
+
+
 def _nadir_cols(inpaint_mask_ssha: np.ndarray, pad_left: int) -> set:
-    """Columns of the central nadir gap: across-track real-data columns that are inpainted
-    on (almost) every along-track row (the contiguous dead band at swath center)."""
+    """Columns of the central nadir gap: the ~20 km dead band at swath CENTER that is
+    inpainted on (almost) every row. Restricted to a central window so a mostly-NaN tile
+    (whole swath inpainted) does NOT get every column flagged as nadir."""
     h, w = inpaint_mask_ssha.shape
-    real = range(pad_left, min(pad_left + 69, w))
-    return {j for j in real if inpaint_mask_ssha[:, j].mean() > 0.9}
+    center = pad_left + 34                                   # middle of the 69-px swath
+    band = range(max(0, center - 12), min(w, center + 13))  # only the central region can be nadir
+    return {j for j in band if inpaint_mask_ssha[:, j].mean() > 0.9}
 
 
 def detect_tile(tile, tile_index: int, cfg: dict,
@@ -204,6 +234,11 @@ def detect_tile(tile, tile_index: int, cfg: dict,
             thresh = params["gap_reject_frac_nadir"] if center_in_nadir else params["gap_reject_frac"]
             gap_reject = gap_frac > thresh
 
+            # Nadir criterion (ours, stricter than the paper's relaxed nadir tolerance): if the
+            # eddy area is mostly inside the nadir dead band it is a biharmonic-invented blob -> drop.
+            nadir_frac = _contour_nadir_frac(contour_ij, nadir, h, w)
+            nadir_reject = nadir_frac >= params["nadir_reject_frac"]
+
             geo = tile_pixel_lonlat(tile, ci, cj, cropped_lon, cropped_lat)
             out.append(Detection(
                 polarity=polarity,
@@ -217,6 +252,8 @@ def detect_tile(tile, tile_index: int, cfg: dict,
                 contour_pix=contour_pix,
                 contour_lonlat=contour_lonlat,
                 gap_frac=gap_frac,
+                nadir_frac=nadir_frac,
+                nadir_reject=nadir_reject,
                 gap_reject=gap_reject,
                 center_in_nadir=center_in_nadir,
                 source_tile=tile_index,
@@ -254,17 +291,36 @@ def dedup_detections(dets: list, cfg: dict) -> list:
 def detect_pass(tiles: list, cfg: dict, cropped_lon: np.ndarray, cropped_lat: np.ndarray,
                 date: datetime, channel: str = "ssha") -> "tuple[list, dict]":
     """Detect over all tiles of one pass, dedup overlaps, return (detections, summary)."""
+    kept, _rejected, summary = detect_pass_split(tiles, cfg, cropped_lon, cropped_lat, date, channel)
+    return kept, summary
+
+
+def detect_pass_split(tiles: list, cfg: dict, cropped_lon: np.ndarray, cropped_lat: np.ndarray,
+                      date: datetime, channel: str = "ssha") -> "tuple[list, list, dict]":
+    """Like detect_pass but ALSO returns the auto-rejected detections (kept, rejected, summary).
+    rejected = the nadir-blob / gap-overlap detections detect_pass drops -- useful as ML
+    negatives. Both lists are deduped across tile overlaps."""
     raw: list = []
     for idx, t in enumerate(tiles):
         raw.extend(detect_tile(t, idx, cfg, cropped_lon, cropped_lat, date, channel))
-    dets = dedup_detections(raw, cfg)
+    n_total = len(raw)
+    n_nadir_reject = sum(d.nadir_reject for d in raw)
+    n_gap_reject = sum(d.gap_reject and not d.nadir_reject for d in raw)
+    rejected_raw = [d for d in raw if d.nadir_reject or d.gap_reject]
+    kept_raw = [d for d in raw if not (d.nadir_reject or d.gap_reject)]
+    kept = dedup_detections(kept_raw, cfg)
+    rejected = dedup_detections(rejected_raw, cfg)
     summary = {
-        "n_raw": len(raw),
-        "n_dedup": len(dets),
-        "n_anticyclonic": sum(d.polarity == "anticyclonic" for d in dets),
-        "n_cyclonic": sum(d.polarity == "cyclonic" for d in dets),
-        "n_gap_reject": sum(d.gap_reject for d in dets),       # paper would drop these
-        "n_nadir_center": sum(d.center_in_nadir for d in dets),
+        "n_total": n_total,
+        "n_nadir_reject": n_nadir_reject,                      # dropped: mostly in nadir gap
+        "n_gap_reject": n_gap_reject,                          # dropped: >40%/60% contour on gaps
+        "n_raw": len(kept_raw),                                # kept survivors before dedup
+        "n_dedup": len(kept),
+        "n_kept": len(kept),
+        "n_rejected": len(rejected),                           # deduped auto-rejected (negatives)
+        "n_anticyclonic": sum(d.polarity == "anticyclonic" for d in kept),
+        "n_cyclonic": sum(d.polarity == "cyclonic" for d in kept),
+        "n_nadir_center": sum(d.center_in_nadir for d in kept),
         "channel": channel,
     }
-    return dets, summary
+    return kept, rejected, summary

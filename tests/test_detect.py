@@ -90,8 +90,8 @@ def _det(polarity, line, col, r=10.0, amp=0.2, edge=50, tile=0):
     return dt_mod.Detection(polarity=polarity, center_line=line, center_col=col,
                             center_lon=282.0, center_lat=31.0, radius_km=r, radius_eff_km=r * 1.3,
                             amplitude_m=amp, contour_pix=[], contour_lonlat=[],
-                            gap_frac=0.0, gap_reject=False, center_in_nadir=False,
-                            source_tile=tile, edge_dist=edge)
+                            gap_frac=0.0, gap_reject=False, nadir_frac=0.0, nadir_reject=False,
+                            center_in_nadir=False, source_tile=tile, edge_dist=edge)
 
 
 def test_dedup_merges_overlapping_same_polarity():
@@ -116,3 +116,16 @@ def test_detect_pass_summary_counts():
     assert summary["n_dedup"] == len(dets)
     assert summary["n_anticyclonic"] + summary["n_cyclonic"] == len(dets)
     assert summary["n_raw"] >= summary["n_dedup"]
+    assert "n_nadir_reject" in summary
+
+
+def test_contour_nadir_frac():
+    # square contour over cols 60-65, rows 10-20
+    contour = [(10, 60), (10, 65), (20, 65), (20, 60), (10, 60)]
+    nadir = {60, 61, 62, 63, 64, 65}
+    assert dt_mod._contour_nadir_frac(contour, nadir, 128, 128) > 0.95   # fully inside nadir
+    assert dt_mod._contour_nadir_frac(contour, {10, 11}, 128, 128) == 0.0  # cols not in nadir
+    assert dt_mod._contour_nadir_frac(contour, set(), 128, 128) == 0.0     # no nadir band
+    # half in nadir: cols 60-65, only 60-62 are nadir -> ~0.5
+    frac = dt_mod._contour_nadir_frac(contour, {60, 61, 62}, 128, 128)
+    assert 0.4 < frac < 0.7
