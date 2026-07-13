@@ -13,9 +13,14 @@ Usage (in the notebook, after detect):
 from __future__ import annotations
 
 import datetime as dt
+import warnings
 from pathlib import Path
 
 import numpy as np
+
+# PET's percentile call on a fully-inpainted (all-False-mask) tile triggers this numpy
+# warning; it is meaningless here and spams the labeler UI (same filter as run_all.py).
+warnings.filterwarnings("ignore", message=r".*partition.*will ignore the 'mask'.*")
 
 try:                                               # cartopy -> coastline + lat/lon gridlines on (e)/(f)
     import cartopy.crs as ccrs
