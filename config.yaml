@@ -55,10 +55,11 @@ tiling:
   pad_to: 128     # across-track NaN-pad target width
 
 features:        # contextual features (src/swot_eddy/features.py)
-  # GS front = ADT contour at this level. 0.30 m chosen by sweep against the 805 hand
-  # labels (scripts/validate_front.py): frontal-vs-open AUC 0.968, frontal median 18 km.
-  front_level_m: 0.30
-  front_min_vertices: 20   # ~40 km of line at 2 km/px; shorter contours = eddy rings/noise
+  # GS front = OPEN ADT contour at this level (closed rings = eddies, dropped). Level from
+  # sweep vs 822 hand labels (scripts/validate_front.py): AUC plateau 0.30-0.35 (0.948/0.952);
+  # 0.35 picked for 0% missing-front rate. See docs/2026-07-12-frontal-prior-methods.md.
+  front_level_m: 0.35
+  front_min_vertices: 20   # ~40 km of line at 2 km/px; shorter fragments = noise
 
 pet:
   pet_version: "0+untagged.754.g229543f"

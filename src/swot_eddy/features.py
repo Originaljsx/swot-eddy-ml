@@ -33,11 +33,17 @@ def _local_xy(lon, lat, lat0):
 
 
 def front_vertices(field, lon2d, lat2d, level, min_vertices=20):
-    """Front line(s) = iso-contours of `field` at `level`, as (M, 2) lon/lat vertices.
+    """Front line(s) = OPEN iso-contours of `field` at `level`, as (M, 2) lon/lat vertices.
 
     Uses skimage.measure.find_contours with mask=isfinite so the nadir gap and swath
-    edges simply break the contours. Contours shorter than min_vertices (~2 km/px, so
-    20 px ~ 40 km) are dropped as closed-eddy rings / noise, keeping the jet line.
+    edges simply break the contours. Two filters keep only the jet's dividing line:
+    - CLOSED contours (first vertex == last) are dropped: a closed ring at the front
+      level is an eddy's own ADT anomaly, and keeping it would put that eddy at distance
+      ~0 from "the front" (self-labeling). The jet line always terminates on the swath
+      edge / nadir gap, i.e. is open. (Audited on the hand labels: rings were 111/625
+      contours but moved frontal-vs-open AUC only 0.956 -> 0.948 -- dropped anyway for
+      a clean definition.)
+    - contours shorter than min_vertices (~2 km/px, so 20 px ~ 40 km) are dropped as noise.
     Returns an empty (0, 2) array when nothing survives.
     """
     from skimage.measure import find_contours
@@ -50,7 +56,7 @@ def front_vertices(field, lon2d, lat2d, level, min_vertices=20):
     lat2d = np.asarray(lat2d, dtype="float64")
     verts = []
     for c in find_contours(field, level, mask=mask):
-        if len(c) < min_vertices:
+        if len(c) < min_vertices or np.allclose(c[0], c[-1]):
             continue
         r = np.clip(np.rint(c[:, 0]).astype(int), 0, field.shape[0] - 1)
         p = np.clip(np.rint(c[:, 1]).astype(int), 0, field.shape[1] - 1)
