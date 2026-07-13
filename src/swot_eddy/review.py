@@ -437,12 +437,13 @@ class CatalogLabeler:
 
     Usage (notebook):
         from swot_eddy.review import CatalogLabeler
-        CatalogLabeler(cfg, labels=("frontal", "non-frontal", "reject")).show()
+        CatalogLabeler(cfg).show()                                   # everything, 4-class
+        CatalogLabeler(cfg, queue="out/aoi5/queue/queue_001.csv").show()   # queued subset
     """
 
     def __init__(self, cfg, labels_path=None,
                  labels=("frontal", "coastal", "open ocean", "reject"),
-                 cycles=None):
+                 cycles=None, queue=None):
         from swot_eddy.aoi import load_aoi
         self.cfg = cfg
         self.region = cfg["region"]                    # AOI5 envelope (crop band)
@@ -454,9 +455,30 @@ class CatalogLabeler:
                             else self.out_root / "aoi5" / "labels" / "eddy_labels_aoi5.csv")
         self.label_opts = list(labels)
         self.passes = self._build_passlist(cycles)     # [(cycle, Path, n_kept, n_rejected), ...]
-        # phase 1 = every pass's KEPT eddies, then phase 2 = every pass's REJECTED eddies
-        self.slots = [(pi, "keep") for pi in range(len(self.passes))] \
-            + [(pi, "reject") for pi in range(len(self.passes))]
+        # Each slot = (pass_index, kind, eddy_ids). eddy_ids=None -> every eddy of that
+        # (pass, kind), i.e. the classic two-phase walk: all KEPT eddies first, then all
+        # auto-REJECTED ones. A `queue` (path or DataFrame keyed cycle/pass/kind/eddy,
+        # e.g. from scripts/build_queue.py) restricts and ORDERS the walk to those eddies;
+        # optional queue columns (dist_front_adt_km, pred, ...) are shown in the status bar.
+        self.queue_info = {}
+        if queue is not None:
+            import pandas as pd
+            q = queue if isinstance(queue, pd.DataFrame) else \
+                pd.read_csv(queue, dtype={"cycle": str, "pass": str})
+            by_pass = {(c, self._pnum(f)): i for i, (c, f, _nk, _nr) in enumerate(self.passes)}
+            self.slots = []
+            for (cyc, pnum, kind), g in q.groupby(["cycle", "pass", "kind"], sort=False):
+                pi = by_pass.get((cyc, pnum))
+                if pi is None:
+                    continue
+                self.slots.append((pi, str(kind), [int(e) for e in g["eddy"]]))
+                extra = [c for c in g.columns if c not in ("cycle", "pass", "kind", "eddy")]
+                for r in g.to_dict("records"):
+                    self.queue_info[(cyc, pnum, str(kind), int(r["eddy"]))] = \
+                        "  ".join(f"{c}={r[c]}" for c in extra)
+        else:
+            self.slots = [(pi, "keep", None) for pi in range(len(self.passes))] \
+                + [(pi, "reject", None) for pi in range(len(self.passes))]
         self.records = self._load()                    # {(cycle, pnum, kind, eddy): label}
         self._cache = (None, None)                     # (pass_index, payload)
         self.si, self.ei = 0, 0                        # slot index, eddy index
@@ -474,13 +496,14 @@ class CatalogLabeler:
             if has_rej:
                 keep = keep | (m["n_rejected"].astype(int) > 0)
             m = m[keep]
+            from swot_eddy.features import find_granule
             for i, (cyc, pas, nk) in enumerate(zip(m["cycle"], m["pass"], m["n_kept"])):
                 if cycles and int(cyc.split("_")[1]) not in cycles:
                     continue
-                fs = list((self.data_root / cyc).glob(f"*_{pas}_*.nc"))
-                if fs:
+                f = find_granule(self.data_root, cyc, pas)
+                if f is not None:
                     nr = int(m["n_rejected"].iloc[i]) if has_rej else None
-                    pl.append((cyc, fs[0], int(nk), nr))
+                    pl.append((cyc, f, int(nk), nr))
         else:                                          # no manifest yet: walk every pass
             for cd in sorted(self.data_root.glob("cycle_*")):
                 if cycles and int(cd.name.split("_")[1]) not in cycles:
@@ -577,9 +600,16 @@ class CatalogLabeler:
                 labels_path=self.labels_path.parent / "__none__.csv")
         return p["rv"][kind]
 
+    def _eddy_id(self, si, ei):
+        """Actual eddy index in the pass's detection list for slot position ei."""
+        ids = self.slots[si][2]
+        return ids[ei] if ids is not None else ei
+
     def _slot_count(self, si):
-        """Number of eddies in a (pass, kind) slot -- from the manifest if possible (no detect)."""
-        pi, kind = self.slots[si]
+        """Number of eddies in a slot -- from the queue / manifest if possible (no detect)."""
+        pi, kind, ids = self.slots[si]
+        if ids is not None:
+            return len(ids)
         _c, _f, nk, nr = self.passes[pi]
         cached = nk if kind == "keep" else nr
         if cached is not None:
@@ -587,16 +617,26 @@ class CatalogLabeler:
         return len(self._load_pass(pi)[kind])
 
     def _slot_labeled(self, si):
-        pi, kind = self.slots[si]
+        pi, kind, ids = self.slots[si]
         cyc, f, _nk, _nr = self.passes[pi]
         pnum = self._pnum(f)
+        if ids is not None:
+            return sum(1 for e in ids if (cyc, pnum, kind, e) in self.records)
         return sum(1 for (c, p, k, _e) in self.records if c == cyc and p == pnum and k == kind)
 
     def _goto_first_unlabeled(self):
         for si in range(len(self.slots)):
             if self._slot_labeled(si) >= self._slot_count(si):
                 continue                               # fully labeled -> skip (no detect if counted)
-            pi, kind = self.slots[si]
+            pi, kind, ids = self.slots[si]
+            if ids is not None:                        # queue slot: no detect needed to locate
+                cyc, f, _nk, _nr = self.passes[pi]
+                pnum = self._pnum(f)
+                for pos, e in enumerate(ids):
+                    if (cyc, pnum, kind, e) not in self.records:
+                        self.si, self.ei = si, pos
+                        return
+                continue
             p = self._load_pass(pi)
             for ei in range(len(p[kind])):
                 if (p["cycle"], p["pnum"], kind, ei) not in self.records:
@@ -605,24 +645,24 @@ class CatalogLabeler:
         self.si, self.ei = max(0, len(self.slots) - 1), 0   # all done
 
     # ---- navigation --------------------------------------------------------
-    def _slot_list(self, si):
-        pi, kind = self.slots[si]
-        return self._load_pass(pi)[kind], kind
+    def _slot_len(self, si):
+        pi, kind, ids = self.slots[si]
+        return len(ids) if ids is not None else len(self._load_pass(pi)[kind])
 
     def _advance(self, step):
-        lst, _ = self._slot_list(self.si)
+        n = self._slot_len(self.si)
         ei = self.ei + step
         while True:
-            if 0 <= ei < len(lst):
+            if 0 <= ei < n:
                 self.ei = ei; return
             if step > 0:
                 if self.si >= len(self.slots) - 1:
-                    self.ei = max(0, len(lst) - 1); return
-                self.si += 1; lst, _ = self._slot_list(self.si); ei = 0
+                    self.ei = max(0, n - 1); return
+                self.si += 1; n = self._slot_len(self.si); ei = 0
             else:
                 if self.si <= 0:
                     self.ei = 0; return
-                self.si -= 1; lst, _ = self._slot_list(self.si); ei = len(lst) - 1
+                self.si -= 1; n = self._slot_len(self.si); ei = n - 1
 
     # ---- UI ----------------------------------------------------------------
     def show(self):
@@ -639,39 +679,46 @@ class CatalogLabeler:
         n_rej = sum(nr for _, _, _, nr in self.passes if nr) or None
 
         def render():
-            pi, kind = self.slots[self.si]
+            pi, kind, ids = self.slots[self.si]
+            eid = self._eddy_id(self.si, self.ei)
             p = self._load_pass(pi)
             lst = p[kind]
             with out:
                 clear_output(wait=True)
-                if lst:
-                    rv = self._rv(p, kind); rv.i = self.ei; rv._draw()
+                if lst and eid < len(lst):
+                    rv = self._rv(p, kind); rv.i = eid; rv._draw()
                 else:
-                    print(f"{p['cycle']}/{p['pnum']} [{kind}]: no eddies")
-            cur = self.records.get((p["cycle"], p["pnum"], kind, self.ei), "—")
+                    print(f"{p['cycle']}/{p['pnum']} [{kind}]: no eddies"
+                          + (f" (queue eddy {eid} out of range)" if lst else ""))
+            cur = self.records.get((p["cycle"], p["pnum"], kind, eid), "—")
             counts = {}
             for v in self.records.values():
                 counts[v] = counts.get(v, 0) + 1
             tally = "  ".join(f"{k}:{v}" for k, v in sorted(counts.items()))
-            phase = "1/2 KEEP (good eddies)" if kind == "keep" else "2/2 REJECT (negatives)"
-            d = lst[self.ei] if lst else None
+            phase = ("QUEUE" if ids is not None
+                     else "1/2 KEEP (good eddies)" if kind == "keep" else "2/2 REJECT (negatives)")
+            d = lst[eid] if lst and eid < len(lst) else None
             polinfo = f" &nbsp; <b style='color:{'red' if d and d.polarity=='anticyclonic' else 'blue'}'>" \
                       f"{d.polarity if d else ''}</b> (auto, from SLA sign)" if d else ""
+            qinfo = self.queue_info.get((p["cycle"], p["pnum"], kind, eid), "")
+            qinfo = f" &nbsp; <code>{qinfo}</code>" if qinfo else ""
             status.value = (
                 f"<b>phase {phase}</b> &nbsp; pass {pi+1}/{len(self.passes)} ({p['cycle']}/{p['pnum']}) "
                 f"&nbsp; <b>{p['date']}</b> "
-                f"&nbsp; <b>eddy {self.ei+1}/{max(1,len(lst))}</b>{polinfo} &nbsp; label: <code>{cur}</code><br>"
+                f"&nbsp; <b>eddy {self.ei+1}/{max(1,self._slot_len(self.si))}</b>"
+                f"{polinfo}{qinfo} &nbsp; label: <code>{cur}</code><br>"
                 f"labeled {len(self.records)}"
                 + (f" &nbsp; (~{n_keep} keep + ~{n_rej} reject est)" if n_keep else "")
                 + f" &nbsp; [{tally}] &nbsp; <code>{self.labels_path}</code>")
 
         def record(label):
-            pi, kind = self.slots[self.si]
+            pi, kind, _ids = self.slots[self.si]
+            eid = self._eddy_id(self.si, self.ei)
             p = self._load_pass(pi)
-            if p[kind]:
-                key = (p["cycle"], p["pnum"], kind, self.ei)
+            if p[kind] and eid < len(p[kind]):
+                key = (p["cycle"], p["pnum"], kind, eid)
                 self.records[key] = label
-                self._save_row(key, p[kind][self.ei], label)
+                self._save_row(key, p[kind][eid], label)
             self._advance(+1); render()
 
         def go(step):
