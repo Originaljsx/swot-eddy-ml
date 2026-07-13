@@ -64,6 +64,15 @@ DECISION_COLS = [
 ]
 
 
+def _atomic_write_csv(df, path):
+    """Write the labels CSV via tmp-file + rename so an interrupted save (kernel restart,
+    crash) can never leave a torn/half-written file. os.replace is atomic on one filesystem."""
+    import os
+    tmp = path.parent / (".{}.tmp".format(path.name))
+    df.to_csv(tmp, index=False)
+    os.replace(tmp, path)
+
+
 class EddyReviewer:
     """One-eddy-at-a-time approval UI backed by a resumable decisions CSV."""
 
@@ -163,7 +172,7 @@ class EddyReviewer:
             df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
         else:
             df = pd.DataFrame([row], columns=DECISION_COLS)
-        df.to_csv(self.labels_path, index=False)
+        _atomic_write_csv(df, self.labels_path)
 
     def _first_unreviewed(self) -> int:
         for k in range(len(self.dets)):
@@ -480,7 +489,10 @@ class CatalogLabeler:
             self.slots = [(pi, "keep", None) for pi in range(len(self.passes))] \
                 + [(pi, "reject", None) for pi in range(len(self.passes))]
         self.records = self._load()                    # {(cycle, pnum, kind, eddy): label}
-        self._cache = (None, None)                     # (pass_index, payload)
+        import threading
+        self._cache = {}                               # {pass_index: payload}, small LRU
+        self._cache_lock = threading.Lock()
+        self._inflight = set()                         # pass indices being prefetched
         self.si, self.ei = 0, 0                        # slot index, eddy index
         self._goto_first_unlabeled()
 
@@ -547,7 +559,7 @@ class CatalogLabeler:
             df = pd.concat([df[~mask], pd.DataFrame([row])], ignore_index=True)
         else:
             df = pd.DataFrame([row], columns=LABEL_COLS)
-        df.to_csv(self.labels_path, index=False)
+        _atomic_write_csv(df, self.labels_path)
 
     # ---- per-pass data (cached) -------------------------------------------
     def _in_box(self, d):
@@ -555,8 +567,47 @@ class CatalogLabeler:
         return self.aoi.contains(d.center_lon, d.center_lat)
 
     def _load_pass(self, pi):
-        if self._cache[0] == pi:
-            return self._cache[1]
+        with self._cache_lock:
+            if pi in self._cache:
+                return self._cache[pi]
+        payload = self._compute_pass(pi)
+        with self._cache_lock:
+            self._cache[pi] = payload
+            while len(self._cache) > 3:                # keep current + prefetched neighbors
+                oldest = next(k for k in self._cache if k != pi)
+                del self._cache[oldest]
+        return payload
+
+    def _prefetch(self, pi):
+        """Load a pass in a background thread so the next slot renders instantly. The
+        expensive part (preprocess + PET detect, ~10-30 s) is pure numpy/xarray -- no
+        matplotlib -- so it is safe off the main thread. Duplicate work is tolerated."""
+        import threading
+        with self._cache_lock:
+            if pi in self._cache or pi in self._inflight:
+                return
+            self._inflight.add(pi)
+
+        def work():
+            try:
+                self._load_pass(pi)
+            except Exception:
+                pass                                   # next render will retry + surface it
+            finally:
+                self._inflight.discard(pi)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _prefetch_next(self):
+        """Prefetch the next DIFFERENT pass after the current slot."""
+        cur = self.slots[self.si][0]
+        for si in range(self.si + 1, len(self.slots)):
+            pi = self.slots[si][0]
+            if pi != cur:
+                self._prefetch(pi)
+                return
+
+    def _compute_pass(self, pi):
         import datetime as _dt, re
         import xarray as xr
         from swot_eddy import preprocess as pp
@@ -588,7 +639,6 @@ class CatalogLabeler:
                    "full": full, "uv": (ua, va), "uv_full": (uf, vf), "edges": edges, "geo": geo,
                    "pad_left": tiles[0].pad_left, "rv": {},
                    "date": date.strftime("%b %d %Y %H:%M UTC")}   # from filename timestamp
-        self._cache = (pi, payload)
         return payload
 
     def _rv(self, p, kind):
@@ -710,6 +760,7 @@ class CatalogLabeler:
                 f"labeled {len(self.records)}"
                 + (f" &nbsp; (~{n_keep} keep + ~{n_rej} reject est)" if n_keep else "")
                 + f" &nbsp; [{tally}] &nbsp; <code>{self.labels_path}</code>")
+            self._prefetch_next()                      # warm the next pass while user labels
 
         def record(label):
             pi, kind, _ids = self.slots[self.si]
