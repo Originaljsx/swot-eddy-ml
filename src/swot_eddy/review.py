@@ -745,8 +745,12 @@ class CatalogLabeler:
             for v in self.records.values():
                 counts[v] = counts.get(v, 0) + 1
             tally = "  ".join(f"{k}:{v}" for k, v in sorted(counts.items()))
-            phase = ("QUEUE" if ids is not None
-                     else "1/2 KEEP (good eddies)" if kind == "keep" else "2/2 REJECT (negatives)")
+            if ids is not None:                        # queue mode: live remaining count
+                n_q = sum(len(s[2]) for s in self.slots)
+                n_q_done = sum(self._slot_labeled(si) for si in range(len(self.slots)))
+                phase = f"QUEUE — {n_q - n_q_done} left of {n_q}"
+            else:
+                phase = "1/2 KEEP (good eddies)" if kind == "keep" else "2/2 REJECT (negatives)"
             d = lst[eid] if lst and eid < len(lst) else None
             polinfo = f" &nbsp; <b style='color:{'red' if d and d.polarity=='anticyclonic' else 'blue'}'>" \
                       f"{d.polarity if d else ''}</b> (auto, from SLA sign)" if d else ""
