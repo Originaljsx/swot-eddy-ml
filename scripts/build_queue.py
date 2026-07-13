@@ -29,9 +29,12 @@ from swot_eddy.config import load_config
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--size", type=int, default=400)
+    ap.add_argument("--size", type=int, default=400,
+                    help="queue budget; 0 = ALL near-front eddies, no audit sample")
     ap.add_argument("--near-km", type=float, default=50.0,
                     help="|front dist| defining the near-front slice")
+    ap.add_argument("--cyclonic", action="store_true",
+                    help="near-front slice: cyclonic eddies only")
     ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
 
@@ -53,18 +56,23 @@ def main():
     # Near-front slice by WHOLE PASSES, densest first: each pass costs one detect+load in
     # the labeler (~15 s), so 10 near-front eddies from one pass beat 10 from 10 passes.
     near = feat[feat["abs_d"] < args.near_km]
-    order = near.groupby(["cycle", "pass"]).size().sort_values(ascending=False)
-    budget = int(args.size * 0.8)
-    picked, n_front = [], 0
-    for (cyc, pnum), cnt in order.items():
-        if n_front >= budget:
-            break
-        picked.append((cyc, pnum))
-        n_front += cnt
-    front = near.merge(pd.DataFrame(picked, columns=["cycle", "pass"]), on=["cycle", "pass"])
-    rest = feat.drop(front.index, errors="ignore")
-    n_rand = min(args.size - len(front), len(rest))
-    rand = rest.sample(n=n_rand, random_state=args.seed) if n_rand > 0 else rest.iloc[:0]
+    if args.cyclonic:
+        near = near[near["polarity"] == "cyclonic"]
+    if args.size == 0:                                 # everything near-front, no audit
+        front, rand = near, near.iloc[:0]
+    else:
+        order = near.groupby(["cycle", "pass"]).size().sort_values(ascending=False)
+        budget = int(args.size * 0.8)
+        picked, n_front = [], 0
+        for (cyc, pnum), cnt in order.items():
+            if n_front >= budget:
+                break
+            picked.append((cyc, pnum))
+            n_front += cnt
+        front = near.merge(pd.DataFrame(picked, columns=["cycle", "pass"]), on=["cycle", "pass"])
+        rest = feat.drop(front.index, errors="ignore")
+        n_rand = min(args.size - len(front), len(rest))
+        rand = rest.sample(n=n_rand, random_state=args.seed) if n_rand > 0 else rest.iloc[:0]
 
     q = pd.concat([front.assign(queue_reason="near_front"),
                    rand.assign(queue_reason="audit")])
