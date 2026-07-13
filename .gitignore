@@ -2,7 +2,17 @@
 *.nc
 *.parquet
 data/
-out/
+# out/ is ignored EXCEPT hand labels + the catalog they key into (irreplaceable / key-order-dependent)
+out/*
+!out/aoi5/
+out/aoi5/*
+!out/aoi5/labels/
+out/aoi5/labels/*
+!out/aoi5/labels/eddy_labels_aoi5.csv
+!out/aoi5/catalog/
+out/aoi5/catalog/*
+!out/aoi5/catalog/detections.csv
+!out/aoi5/catalog/passes_done.csv
 weights/
 checkpoints/
 # python
