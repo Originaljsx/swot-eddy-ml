@@ -15,8 +15,13 @@ Temporal split (eddies persist across adjacent 21-day cycles -> no random split)
 Known label caveat (documented, accepted for v1): PET-missed frontal eddies appear as
 background in y. See docs/2026-07-12-frontal-prior-methods.md Sec. 5.
 
+--raw (v2): NO inpainting/tiling — native fields cropped + padded, NaN gaps kept, plus a
+4th validity channel (1 = real data). Output goes to out/aoi5/training_v2/. Rationale:
+inpainting is a PET requirement the U-Net doesn't share; it is the slowest step and the
+source of seam artifacts + gap blow-ups.
+
 Usage:
-  .venv/bin/python scripts/build_masks.py [--cycles 1 2] [--redo]
+  .venv/bin/python scripts/build_masks.py [--cycles 1 2] [--redo] [--raw]
 """
 from __future__ import annotations
 
@@ -33,7 +38,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from swot_eddy.config import load_config
 from swot_eddy import preprocess as pp
-from swot_eddy.features import find_granule, grad_mag_per_km
+from swot_eddy.features import find_granule, grad_mag_per_km, raw_channels
 
 MAN_COLS = ["cycle", "pass", "split", "n_frontal", "n_lines", "status"]
 
@@ -65,11 +70,12 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--cycles", nargs="*", type=int)
     ap.add_argument("--redo", action="store_true")
+    ap.add_argument("--raw", action="store_true", help="v2: native channels, no inpaint")
     args = ap.parse_args()
 
     cfg = load_config()
     root = Path(cfg["out_root"]) / "aoi5"
-    out_dir = root / "training"
+    out_dir = root / ("training_v2" if args.raw else "training")
     out_dir.mkdir(parents=True, exist_ok=True)
     manifest = out_dir / "training_manifest.csv"
     if args.redo:
@@ -107,17 +113,22 @@ def main():
                 manifest, mode="a", header=not manifest.exists(), index=False)
             continue
         try:
-            tiles, summ, _, _ = pp.preprocess_pass(str(f), cfg)
-            full, inp = stitch(tiles, summ["n_lines_cropped"])
-            x = np.concatenate([full, grad_mag_per_km(full[1])[None]], axis=0)
+            if args.raw:
+                x, n_lines = raw_channels(f, cfg)
+                inp = ~np.isfinite(x[0])           # "inp" = missing-data map in v2
+            else:
+                tiles, summ, _, _ = pp.preprocess_pass(str(f), cfg)
+                n_lines = summ["n_lines_cropped"]
+                full, inp = stitch(tiles, n_lines)
+                x = np.concatenate([full, grad_mag_per_km(full[1])[None]], axis=0)
 
-            y = np.zeros(full.shape[1:], dtype=np.uint8)
+            y = np.zeros((n_lines, 128), dtype=np.uint8)
             vv = verts[(verts["cycle"] == cyc) & (verts["pass"] == pnum)]
             for _, g in vv.groupby(["kind", "eddy"]):
                 rr, cc = sk_polygon(g["line"].values, g["col"].values, shape=y.shape)
                 y[rr, cc] = 1
                 row["n_frontal"] += 1
-            row["n_lines"] = int(full.shape[1])
+            row["n_lines"] = int(n_lines)
 
             np.savez_compressed(out_dir / f"{cyc}_{pnum}.npz",
                                 x=x.astype(np.float16), y=y,

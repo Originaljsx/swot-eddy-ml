@@ -29,16 +29,21 @@ from swot_eddy.features import grad_mag_per_km
 from swot_eddy import unet as U
 
 
-def predict_pass(granule, cfg, model, device="cpu", stride=64):
+def predict_pass(granule, cfg, model, device="cpu", stride=64, raw=False):
     import torch
-    tiles, summ, clon, clat = pp.preprocess_pass(str(granule), cfg)
-    L = summ["n_lines_cropped"]
-    full = np.full((2, L, 128), np.nan)
-    for t in tiles:
-        h = t.data.shape[1]
-        e = min(t.line_start + h, L)
-        full[:, t.line_start:e, :] = t.data[:, :e - t.line_start, :]
-    x = np.concatenate([full, grad_mag_per_km(full[1])[None]], axis=0)
+    if raw:                                  # v2: native channels, no inpaint (fast path)
+        from swot_eddy.features import raw_channels
+        x, L = raw_channels(granule, cfg)
+        clon = clat = None
+    else:                                    # v1: same inpainted stack as detection
+        tiles, summ, clon, clat = pp.preprocess_pass(str(granule), cfg)
+        L = summ["n_lines_cropped"]
+        full = np.full((2, L, 128), np.nan)
+        for t in tiles:
+            h = t.data.shape[1]
+            e = min(t.line_start + h, L)
+            full[:, t.line_start:e, :] = t.data[:, :e - t.line_start, :]
+        x = np.concatenate([full, grad_mag_per_km(full[1])[None]], axis=0)
 
     prob = np.zeros((L, 128), dtype=np.float32)
     hits = np.zeros((L, 128), dtype=np.float32)
@@ -64,24 +69,27 @@ def main():
     ap.add_argument("--thresh", type=float, default=0.5)
     ap.add_argument("--conformal", action="store_true",
                     help="use the conformally calibrated threshold lam_hat "
-                         "(out/aoi5/model/lam_hat.npy; miss rate <= alpha guarantee)")
+                         "(out/aoi5/model/lam_hat[_v2].npy; miss rate <= alpha guarantee)")
+    ap.add_argument("--v2", action="store_true",
+                    help="v2 model: raw native channels + validity, no inpainting")
     args = ap.parse_args()
 
     import torch
     cfg = load_config()
+    ver = "_v2" if args.v2 else ""
     wpath = Path(args.weights) if args.weights else \
-        Path(cfg["out_root"]) / "aoi5" / "model" / "unet_frontal.pt"
-    model = U.build_unet()
+        Path(cfg["out_root"]) / "aoi5" / "model" / f"unet_frontal{ver}.pt"
+    model = U.build_unet(in_ch=4 if args.v2 else 3)
     model.load_state_dict(torch.load(wpath, map_location="cpu", weights_only=True))
     model.eval()
 
     thresh = args.thresh
     if args.conformal:
-        lam = np.load(wpath.parent / "lam_hat.npy")
+        lam = np.load(wpath.parent / f"lam_hat{ver}.npy")
         thresh = float(lam[0])
         print(f"conformal threshold lam_hat={thresh:.3f} (alpha={lam[1]:.2f})")
 
-    prob, x, _, _ = predict_pass(args.granule, cfg, model)
+    prob, x, _, _ = predict_pass(args.granule, cfg, model, raw=args.v2)
     mask = (prob >= thresh).astype(np.uint8)
 
     out_dir = Path(cfg["out_root"]) / "aoi5" / "predictions"

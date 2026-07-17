@@ -153,6 +153,25 @@ def native_fields(granule_path, cfg):
     return {"lon": lon, "lat": lat, "adt": adt, "mdt": mdt, "grad_adt": grad_mag_per_km(adt)}
 
 
+def raw_channels(granule_path, cfg):
+    """v2 U-Net input: native SSHA/ADT cropped + NaN-padded to 128 across-track,
+    |grad ADT| (NaN-propagating), validity mask (1 = real data). NO inpainting.
+    Returns (x (4, L, 128) float64 with NaNs, L)."""
+    import xarray as xr
+    from swot_eddy import preprocess as pp
+
+    var_map = cfg["product"]["variables"][cfg["product"]["product_version"]]
+    with xr.open_dataset(str(granule_path)) as ds:
+        dc, _ = pp.crop_to_region(ds, cfg["region"])
+        ssha = dc[var_map["ssha"]].values.astype("float64")
+        adt = dc[var_map["ssha_adt_base"]].values.astype("float64") + \
+            dc[var_map["mdt"]].values.astype("float64")
+    stack, _ = pp.pad_across_track(np.stack([ssha, adt]), 128)
+    valid = np.isfinite(stack[0]).astype("float64")
+    x = np.concatenate([stack, grad_mag_per_km(stack[1])[None], valid[None]])
+    return x, x.shape[1]
+
+
 FEATURE_COLS = [
     "dist_front_adt_km", "front_adt_missing", "dist_front_mdt_km", "front_mdt_missing",
     "adt_center_m", "mdt_center_m", "center_sample_dist_px",
