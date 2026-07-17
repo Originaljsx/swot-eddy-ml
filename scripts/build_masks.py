@@ -9,7 +9,8 @@ One .npz per labeled pass in out/aoi5/training/:
                              (optional loss down-weighting; invented pixels)
 Manifest training_manifest.csv: cycle, pass, split, n_frontal, n_lines, status.
 Temporal split (eddies persist across adjacent 21-day cycles -> no random split):
-  train = cycles 1-35, val = 36-42, test = 43-50.
+  train = cycles 1-30 (fit), val = 31-35 (model selection), cal = 36-42 (conformal
+  calibration -- untouched by training or selection), test = 43-50 (final eval).
 
 Known label caveat (documented, accepted for v1): PET-missed frontal eddies appear as
 background in y. See docs/2026-07-12-frontal-prior-methods.md Sec. 5.
@@ -39,7 +40,13 @@ MAN_COLS = ["cycle", "pass", "split", "n_frontal", "n_lines", "status"]
 
 def split_of(cycle: str) -> str:
     n = int(cycle.split("_")[1])
-    return "train" if n <= 35 else ("val" if n <= 42 else "test")
+    if n <= 30:
+        return "train"
+    if n <= 35:
+        return "val"
+    if n <= 42:
+        return "cal"
+    return "test"
 
 
 def stitch(tiles, n_lines):

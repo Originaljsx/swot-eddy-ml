@@ -62,6 +62,9 @@ def main():
     ap.add_argument("granule")
     ap.add_argument("--weights", default=None)
     ap.add_argument("--thresh", type=float, default=0.5)
+    ap.add_argument("--conformal", action="store_true",
+                    help="use the conformally calibrated threshold lam_hat "
+                         "(out/aoi5/model/lam_hat.npy; miss rate <= alpha guarantee)")
     args = ap.parse_args()
 
     import torch
@@ -72,8 +75,14 @@ def main():
     model.load_state_dict(torch.load(wpath, map_location="cpu", weights_only=True))
     model.eval()
 
+    thresh = args.thresh
+    if args.conformal:
+        lam = np.load(wpath.parent / "lam_hat.npy")
+        thresh = float(lam[0])
+        print(f"conformal threshold lam_hat={thresh:.3f} (alpha={lam[1]:.2f})")
+
     prob, x, _, _ = predict_pass(args.granule, cfg, model)
-    mask = (prob >= args.thresh).astype(np.uint8)
+    mask = (prob >= thresh).astype(np.uint8)
 
     out_dir = Path(cfg["out_root"]) / "aoi5" / "predictions"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -88,7 +97,7 @@ def main():
     axes[0].imshow(x[0] * 100, cmap="RdBu_r", vmin=-10, vmax=30, origin="lower", aspect="auto")
     axes[0].set_title("SSHA (cm)", fontsize=9)
     axes[1].imshow(prob, cmap="magma", vmin=0, vmax=1, origin="lower", aspect="auto")
-    axes[1].set_title(f"P(frontal), thresh {args.thresh}", fontsize=9)
+    axes[1].set_title(f"P(frontal), thresh {thresh:.3f}", fontsize=9)
     for a in axes:
         a.contour(mask, levels=[0.5], colors="lime", linewidths=1)
         a.axis("off")
