@@ -35,6 +35,10 @@ def main():
                     help="|front dist| defining the near-front slice")
     ap.add_argument("--cyclonic", action="store_true",
                     help="near-front slice: cyclonic eddies only")
+    ap.add_argument("--random-only", action="store_true",
+                    help="pure random sample of --size unlabeled eddies (audit queue: "
+                         "any polarity, any front distance — unbiased class rates + "
+                         "measures what the near-front rule misses)")
     ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
 
@@ -62,7 +66,11 @@ def main():
     near = feat[feat["abs_d"] < args.near_km]
     if args.cyclonic:
         near = near[near["polarity"] == "cyclonic"]
-    if args.size == 0:                                 # everything near-front, no audit
+    if args.random_only:                               # pure unbiased audit sample
+        pool = feat[~feat["labeled"]]
+        front = feat.iloc[:0]
+        rand = pool.sample(n=min(args.size or 200, len(pool)), random_state=args.seed)
+    elif args.size == 0:                               # everything near-front, no audit
         front, rand = near, near.iloc[:0]
     else:                                              # budget counts UNLABELED eddies only
         order = (near[~near["labeled"]].groupby(["cycle", "pass"]).size()
