@@ -1,11 +1,12 @@
 """Publication figures for the frontal-eddy pipeline + v2 U-Net. Read-only inputs.
 
-Writes out/aoi5/paper_figs/fig{1..5}.(png|pdf), 300 dpi, serif, panel letters:
-  fig1  study region: AOI5 polygon, example swath ADT, front line, labeled eddies
-  fig2  training sample: input channels + frontal-mask target
-  fig3  front-prior validation: signed-distance by class + AUC level sweep
-  fig4  model results on two held-out passes (geographic, truth vs prediction)
-  fig5  quantitative: precision/recall vs threshold + detection-confidence distributions
+Writes out/aoi5/paper_figs/*.(png|pdf), 300 dpi, serif, panel letters:
+  study_region_aoi5_labels_and_front            AOI5 polygon, swath ADT, front, labels
+  unet_input_channels_and_frontal_mask_target   training sample: channels + target
+  adt_front_prior_validation_distance_and_auc   signed-distance by class + AUC sweep
+  unet_predictions_vs_labels_test_passes        two held-out passes, truth vs prediction
+  precision_recall_vs_threshold_and_confidence  P/R/F1 sweep + confidence distributions
+  raw_pass_ssha_adt_and_detections              raw pass: SSHA / ADT+front / detections
 
 Conventions: Okabe-Ito colorblind-safe class colors; predictions violet, confirmed
 labels green throughout; all model panels from TEST cycles (43-50) only.
