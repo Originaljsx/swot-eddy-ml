@@ -108,7 +108,7 @@ ax.legend(loc="lower right", markerscale=3, framealpha=0.9)
 fig.colorbar(pm, ax=ax, shrink=0.65, pad=0.02).set_label("ADT (m)")
 ax.set_title(f"Study region: GS_AOI5 (dashed), example swath ADT ({cyc}/{pnum}),\n"
              f"ADT {LEVEL:.2f} m front line (gold), hand-labeled eddies (all cycles)")
-save(fig, "fig1_region")
+save(fig, "study_region_aoi5_labels_and_front")
 
 # ------------------------------------------------------- fig 2: training sample
 with np.load(ROOT / "out/aoi5/training_v2" / f"{cyc}_{pnum}.npz") as d:
@@ -129,7 +129,7 @@ axes[3].contour(y2, levels=[0.5], colors=C_TRUTH, linewidths=1.1)
 axes[0].set_ylabel("along-track pixel (2 km)")
 fig.suptitle("U-Net training sample: native input channels and confirmed-frontal mask",
              y=0.98)
-save(fig, "fig2_training_sample")
+save(fig, "unet_input_channels_and_frontal_mask_target")
 
 # ------------------------------------------------- fig 3: front-prior validation
 fd = pd.read_csv(ROOT / "out/aoi5/features/front_dists_labeled.csv")
@@ -156,7 +156,7 @@ axes[1].legend(frameon=False)
 label_panel(axes[1], "(b)")
 for ax in axes:
     ax.spines[["top", "right"]].set_visible(False)
-save(fig, "fig3_front_validation")
+save(fig, "adt_front_prior_validation_distance_and_auc")
 
 # ------------------------------------------------------------- fig 4/5: model
 model = build_unet(in_ch=4)
@@ -206,7 +206,7 @@ for i, (c, p) in enumerate(show):
         ax.set_title(f"{c.replace('cycle_', 'c')}/{p}\n{ttl}", fontsize=7.5)
 fig.suptitle("v2 U-Net on held-out passes — green: confirmed frontal, violet: prediction",
              y=0.985, fontsize=9)
-save(fig, "fig4_results_passes")
+save(fig, "unet_predictions_vs_labels_test_passes")
 
 # fig 5: quantitative
 man = pd.read_csv(ROOT / "out/aoi5/training_v2/training_manifest.csv",
@@ -257,7 +257,7 @@ axes[1].legend(frameon=False, loc="upper left")
 label_panel(axes[1], "(b)")
 for ax in axes:
     ax.spines[["top", "right"]].set_visible(False)
-save(fig, "fig5_quantitative")
+save(fig, "precision_recall_vs_threshold_and_confidence")
 
 # --------------------------- fig 6: raw pass -> SSHA / ADT / detections
 C6, P6 = "cycle_049", "091"
@@ -301,5 +301,5 @@ for j, (fld, cmap, vmin, vmax, cblab, ttl) in enumerate(panels):
 fig.suptitle(f"Raw SWOT pass {C6.replace('cycle_', 'cycle ')}/{P6}: input fields and "
              f"U-Net frontal-eddy detections (threshold $\\hat\\lambda$={LAM:.2f})",
              y=0.985, fontsize=9)
-save(fig, "fig6_raw_pass_detections")
+save(fig, "raw_pass_ssha_adt_and_detections")
 print("done ->", OUT)
