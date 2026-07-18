@@ -258,4 +258,48 @@ label_panel(axes[1], "(b)")
 for ax in axes:
     ax.spines[["top", "right"]].set_visible(False)
 save(fig, "fig5_quantitative")
+
+# --------------------------- fig 6: raw pass -> SSHA / ADT / detections
+C6, P6 = "cycle_049", "091"
+g6 = ft.find_granule(cfg["data_root"], C6, P6)
+nf6 = ft.native_fields(g6, cfg)
+front6 = ft.front_vertices(nf6["adt"], nf6["lon"], nf6["lat"], LEVEL, 20)
+x6, _ = ft.raw_channels(g6, cfg)
+prob6 = run(x6.astype(np.float32))
+nat6 = slice(PAD_LEFT, PAD_LEFT + nf6["lon"].shape[1])
+mask6 = prob6[:, nat6] > LAM
+lbl6, n6 = ndimage.label(mask6)
+ssha6 = nf6["adt"] * 0 + x6[0, :, nat6] * 100      # native-grid SSHA in cm
+v1_, v2_ = np.nanpercentile(ssha6, 2), np.nanpercentile(ssha6, 98)
+
+fig = plt.figure(figsize=(6.8, 5.6))
+panels = [(ssha6, "RdBu_r", v1_, v2_, "SSHA (cm)", "SSHA (cm)"),
+          (nf6["adt"], "Spectral_r", -0.1, 0.8, "ADT (m)", "ADT (m)"),
+          (ssha6, "RdBu_r", v1_, v2_, "SSHA (cm)", "detected frontal eddies")]
+for j, (fld, cmap, vmin, vmax, cblab, ttl) in enumerate(panels):
+    ax = geo_ax(fig, [0.06 + j * 0.31, 0.10, 0.27, 0.80])
+    pm = ax.pcolormesh(nf6["lon"], nf6["lat"], fld, cmap=cmap, vmin=vmin, vmax=vmax,
+                       shading="nearest", **({"transform": PC} if PC else {}))
+    if j == 1 and len(front6):
+        ax.plot(front6[:, 0], front6[:, 1], ".", color=C_FRONT, ms=1.0,
+                **({"transform": PC} if PC else {}))
+    if j == 2:
+        for k in range(1, n6 + 1):
+            ys_, xs_ = np.where(lbl6 == k)
+            ax.plot(nf6["lon"][ys_, xs_], nf6["lat"][ys_, xs_], ".", color=C_PRED,
+                    ms=1.0, **({"transform": PC} if PC else {}))
+            cy, cx = (int(v) for v in ndimage.center_of_mass(lbl6 == k))
+            ax.annotate(str(k), (nf6["lon"][cy, cx], nf6["lat"][cy, cx]),
+                        textcoords="offset points", xytext=(6, 4), fontsize=7,
+                        **({"transform": PC} if PC else {}))
+    label_panel(ax, f"({'abc'[j]})")
+    ax.set_title(ttl, fontsize=8.5)
+    cb = fig.colorbar(pm, ax=ax, orientation="horizontal", pad=0.07, shrink=0.9,
+                      aspect=28)
+    cb.set_label(cblab, fontsize=7)
+    cb.ax.tick_params(labelsize=6.5)
+fig.suptitle(f"Raw SWOT pass {C6.replace('cycle_', 'cycle ')}/{P6}: input fields and "
+             f"U-Net frontal-eddy detections (threshold $\\hat\\lambda$={LAM:.2f})",
+             y=0.985, fontsize=9)
+save(fig, "fig6_raw_pass_detections")
 print("done ->", OUT)
