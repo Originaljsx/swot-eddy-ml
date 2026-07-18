@@ -72,6 +72,9 @@ def main():
                          "(out/aoi5/model/lam_hat[_v2].npy; miss rate <= alpha guarantee)")
     ap.add_argument("--v2", action="store_true",
                     help="v2 model: raw native channels + validity, no inpainting")
+    ap.add_argument("--report", action="store_true",
+                    help="geographic report card: annotated map (SSHA/ADT/P panels, "
+                         "numbered eddies, coastline) + per-eddy CSV")
     args = ap.parse_args()
 
     import torch
@@ -101,18 +104,102 @@ def main():
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    fig, axes = plt.subplots(1, 2, figsize=(7, 10))
-    axes[0].imshow(x[0] * 100, cmap="RdBu_r", vmin=-10, vmax=30, origin="lower", aspect="auto")
-    axes[0].set_title("SSHA (cm)", fontsize=9)
-    axes[1].imshow(prob, cmap="magma", vmin=0, vmax=1, origin="lower", aspect="auto")
-    axes[1].set_title(f"P(frontal), thresh {thresh:.3f}", fontsize=9)
-    for a in axes:
-        a.contour(mask, levels=[0.5], colors="lime", linewidths=1)
-        a.axis("off")
-    fig.savefig(out_dir / f"{stem}_frontal.png", dpi=120, bbox_inches="tight")
-    n_blobs = int(__import__("scipy.ndimage", fromlist=["label"]).label(mask)[1])
+    from scipy import ndimage
+
+    if args.report:
+        _report_card(args.granule, cfg, x, prob, mask, thresh, out_dir, stem)
+    else:
+        fig, axes = plt.subplots(1, 2, figsize=(7, 10))
+        axes[0].imshow(x[0] * 100, cmap="RdBu_r", vmin=-10, vmax=30, origin="lower", aspect="auto")
+        axes[0].set_title("SSHA (cm)", fontsize=9)
+        axes[1].imshow(prob, cmap="magma", vmin=0, vmax=1, origin="lower", aspect="auto")
+        axes[1].set_title(f"P(frontal), thresh {thresh:.3f}", fontsize=9)
+        for a in axes:
+            a.contour(mask, levels=[0.5], colors="lime", linewidths=1)
+            a.axis("off")
+        fig.savefig(out_dir / f"{stem}_frontal.png", dpi=120, bbox_inches="tight")
+    n_blobs = int(ndimage.label(mask)[1])
     print(f"{stem}: {n_blobs} predicted frontal eddies, "
           f"{mask.sum()} px -> {out_dir / (stem + '_frontal.npz')}")
+
+
+def _report_card(granule, cfg, x, prob, mask, thresh, out_dir, stem):
+    """Geographic per-pass report: (a) SSHA + numbered eddies, (b) ADT + front line,
+    (c) P(frontal); plus <stem>_eddies.csv (id, lon, lat, max_p, area_km2, radius_km)."""
+    import matplotlib.pyplot as plt
+    import pandas as pd
+    from scipy import ndimage
+    from swot_eddy.features import native_fields, front_vertices
+
+    nf = native_fields(granule, cfg)
+    level = cfg["features"]["front_level_m"]
+    front = front_vertices(nf["adt"], nf["lon"], nf["lat"], level,
+                           cfg["features"]["front_min_vertices"])
+    pad_left = (128 - nf["lon"].shape[1]) // 2
+    nat = slice(pad_left, pad_left + nf["lon"].shape[1])
+
+    lbl, n = ndimage.label(mask)
+    rows = []
+    for k in range(1, n + 1):
+        blob = lbl == k
+        cy, cx = (int(v) for v in ndimage.center_of_mass(blob))
+        cxn = int(np.clip(cx - pad_left, 0, nf["lon"].shape[1] - 1))
+        area = float(blob.sum()) * 4.0                      # 2 km pixels
+        rows.append({"id": k, "lon": round(float(nf["lon"][cy, cxn]), 3),
+                     "lat": round(float(nf["lat"][cy, cxn]), 3),
+                     "max_p": round(float(prob[blob].max()), 3),
+                     "area_km2": round(area, 0),
+                     "radius_km": round(float(np.sqrt(area / np.pi)), 1),
+                     "center_line": cy, "center_col": cx})
+    eddies = pd.DataFrame(rows)
+    eddies.to_csv(out_dir / f"{stem}_eddies.csv", index=False)
+
+    try:
+        import cartopy.crs as ccrs
+        PC = ccrs.PlateCarree()
+    except Exception:
+        PC = None
+    ssha_n = x[0, :, nat] * 100
+    prob_n = np.where(np.isfinite(x[0, :, nat]), prob[:, nat], np.nan)
+    v1_, v2_ = np.nanpercentile(ssha_n, 2), np.nanpercentile(ssha_n, 98)
+    fig = plt.figure(figsize=(10.5, 8))
+    panels = [(ssha_n, "RdBu_r", v1_, v2_, "SSHA (cm) + detected frontal eddies"),
+              (nf["adt"], "Spectral_r", -0.1, 0.8, f"ADT (m) + {level:.2f} m front"),
+              (prob_n, "magma", 0, 1, f"P(frontal), thresh {thresh:.2f}")]
+    for j, (fld, cmap, vmin, vmax, ttl) in enumerate(panels):
+        if PC is not None:
+            ax = fig.add_axes([0.05 + j * 0.32, 0.06, 0.29, 0.86], projection=PC)
+            ax.coastlines("10m", linewidth=0.5)
+            gl = ax.gridlines(draw_labels=True, linewidth=0.25, color="0.85", linestyle=":")
+            gl.top_labels = gl.right_labels = False
+            gl.xlabel_style = gl.ylabel_style = {"size": 7}
+        else:
+            ax = fig.add_axes([0.05 + j * 0.32, 0.06, 0.29, 0.86])
+        kw = {"transform": PC} if PC else {}
+        ax.pcolormesh(nf["lon"], nf["lat"], fld, cmap=cmap, vmin=vmin, vmax=vmax,
+                      shading="nearest", **kw)
+        if j == 1 and len(front):
+            ax.plot(front[:, 0], front[:, 1], ".", color="#B8860B", ms=1.2, **kw)
+        for r in rows:
+            m = (lbl == r["id"])[:, nat]
+            ys, xs = np.where(m)
+            if len(ys) == 0:
+                continue
+            ax.plot(nf["lon"][ys, xs], nf["lat"][ys, xs], ".", color="#7b3294",
+                    ms=0.8, **kw)
+            if j == 0:
+                ax.annotate(str(r["id"]), (r["lon"], r["lat"]),
+                            textcoords="offset points", xytext=(6, 4),
+                            fontsize=7, color="k",
+                            **({"transform": PC} if PC else {}))
+        ax.set_title(ttl, fontsize=8.5)
+    fig.suptitle(f"{stem}\n{len(rows)} frontal eddies detected", fontsize=10)
+    fig.savefig(out_dir / f"{stem}_report.png", dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    if len(eddies):
+        print(eddies[["id", "lon", "lat", "max_p", "radius_km", "area_km2"]]
+              .to_string(index=False))
+    print(f"report -> {out_dir / (stem + '_report.png')}")
 
 
 if __name__ == "__main__":
