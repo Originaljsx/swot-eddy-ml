@@ -49,15 +49,40 @@ pass, get every frontal eddy with position, size, and confidence.
 
 ## 4. Stage 1 — bootstrap labeling
 
-### 4.1 PET on every pass
+### 4.1 PET on every pass — exact configuration
 
-Following de Marez et al. (2026) exactly: crop to region → pad 69→128 across-track →
-128×128 tiles with 64-px overlap → biharmonic inpainting of gaps (PET requires closed
-contours) → PET `eddy_identification` per tile (closed SSH contours around extrema;
-shape error ≤ 85%, amplitude ≥ 1 cm, speed radius ≥ 5 km) → rejection of detections
-whose contours live mostly on inpainted or nadir pixels (inpainting invents smooth
-blobs) → cross-tile deduplication. Result: **15,641 detections over 50 cycles**, with
-deterministic per-pass ordering that serves as a stable join key for everything below.
+py-eddy-tracker (git master, `0+untagged.754.g229543f`; PyPI release is uninstallable
+on modern Python) is used purely as a **per-pass detector** — no tracking. The recipe
+follows de Marez et al. (2026) Sect. 3.1, with each step spelled out because it defines
+the support of all downstream labels:
+
+1. **Field:** detection runs on `ssha_filtered` exactly as the L3 product ships it —
+   no extra quality-flag masking, no high-pass/detrending (deviations we tried and
+   reverted for fidelity).
+2. **Geometry:** crop the pass to the study region's bounding band (full 69-px width);
+   NaN-pad across-track 69 → 128 (centered); cut 128×128 along-track tiles with 64-px
+   overlap so every eddy is fully interior to at least one tile.
+3. **Inpainting:** biharmonic fill (`skimage inpaint_biharmonic`) of every NaN gap per
+   tile — PET cannot close contours across gaps. Fill locations are remembered.
+4. **Identification:** each tile becomes a local equirectangular `RegularGridDataset`
+   (~2 km spacing; forced units m and m/s); `eddy_identification` scans SSH levels for
+   closed contours around extrema with: shape error ≤ **85%**, amplitude ≥ **0.01 m**,
+   speed radius R_max ≥ **5 km**, contour area **4–1000 pixels** (PET-standard; caps
+   effective radius near ~36 km on this grid). Polarity from SLA sign. Near-constant
+   tiles are skipped (PET contour crash guard).
+5. **Trust rejection (drops, not flags):** a detection is discarded when > **40%** of
+   its speed-contour-enclosed area lies on inpainted pixels (relaxed to **60%** when the
+   center sits in the nadir band), or ≥ **70%** of its area lies inside the nadir strip
+   (biharmonic invents smooth blobs there). These rules protect precision and directly
+   cost recall near gaps — failure mode 2 of Section 8.
+6. **Dedup:** detections from overlapping tiles within 10 km keep one copy; centers are
+   then filtered to the study polygon (point-in-polygon; pixels are never masked before
+   inpainting, to avoid fabricated edges).
+
+Result: **15,641 detections over 50 cycles** (kept + auto-rejected kinds, the latter
+retained as ML negatives), with deterministic per-pass ordering that serves as a stable
+join key for everything below. In the final hybrid detector (Section 6) this same
+pipeline runs again at inference time as the proposal stage.
 
 ### 4.2 Hand labeling with a physical accelerator
 
