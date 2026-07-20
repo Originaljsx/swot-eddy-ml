@@ -19,10 +19,11 @@ held-out cycles.
 **The open problem: every label, and therefore every metric, is conditioned on PET
 having detected the eddy in the first place.** PET is known to under-detect in this
 region. Our recall numbers are recall *given PET support*; recall against the true
-population of frontal eddies is currently unidentifiable from our data. We want a
-principled way to measure, bound, or mitigate this — Section 8 states the question
-precisely, Section 9 lists what we know that constrains it, and Section 10 lists the
-approaches we've considered with their weaknesses.
+population of frontal eddies is currently unidentifiable from our data. Section 8
+states the open questions precisely, Section 9 lists the assets and evidence in hand,
+and Section 10 lists practical constraints. We are deliberately not prescribing a
+direction — we want your read on how you would attack this, including whether the
+current architecture is the right one at all.
 
 ## 2. Scientific goal
 
@@ -197,10 +198,16 @@ P(detected | e ∈ F_PET ∩ labeled), not P(detected | e ∈ F).
 3. Small (< ~5 km radius) or weak (< 1 cm amplitude) eddies below PET's thresholds.
 4. Eddies visible in the *unfiltered* field but smoothed away in `ssha_filtered`.
 
-**What we want:** a defensible estimate or bound on P(e ∈ F_PET | e ∈ F) for frontal
-eddies — equivalently, a way to either (a) measure the detector's true recall, (b)
-train/evaluate in a way that is not conditioned on PET, or (c) argue rigorously about
-the magnitude and character of the unobserved stratum. What would you do?
+**The open questions — deliberately unconstrained:**
+
+1. Given the assets in hand (Section 9), how would you measure or bound
+   P(e ∈ F_PET | e ∈ F) — the fraction of real frontal eddies the bootstrap detector
+   ever surfaced?
+2. More broadly: knowing the goal (every frontal eddy in a pass, with confidence) and
+   the data (raw swaths, 902 bootstrap-confirmed positives, unused velocity fields,
+   repeat-pass geometry), **what approach / model / architecture would you pursue?**
+   Nothing about the current PET → U-Net → hybrid design should be treated as fixed;
+   it is one path through the problem, not the answer.
 
 ## 9. Constraints and partial evidence already in hand
 
@@ -221,48 +228,21 @@ the magnitude and character of the unobserved stratum. What would you do?
   planned and feasible, but 20 passes may be a small sample for a rate estimate,
   and "exhaustive human annotation" has its own recall question.
 
-## 10. Approaches considered, with their problems
+## 10. Practical notes for whatever you propose
 
-1. **Gold passes** (exhaustive expert annotation of ~20 passes, stratified by season
-   and front state). Direct estimate of both PET's and the hybrid's true recall.
-   Problems: small n → wide confidence intervals on a possibly small miss rate; human
-   recall is itself unverified; selection of "annotatable" passes may bias toward easy
-   conditions.
-2. **Two-tier output** (ship hybrid detections as tier 1, high-probability non-PET
-   U-Net blobs as flagged tier-2 candidates for human review). Surfaces misses
-   operationally; doesn't measure anything, and tier 2 is precision-poor (~0.4).
-3. **Loosen PET** (drop amplitude/shape thresholds, accept junk, let the U-Net gate
-   filter). Recovers threshold-type misses (mode 3) only; does nothing for modes 1–2,
-   which we believe dominate; junk explosion burdens the gate with inputs unlike its
-   training distribution.
-4. **Velocity-based detection branch** (add `ugos/vgos` or vorticity channels; or a
-   separate winding-number/closed-streamline detector). Attacks mode 1 directly with a
-   different physical signature. Problem: its training labels would come from... the
-   same PET bootstrap — circularity again, unless combined with (1) or (5).
-5. **OSSE / model-truth evaluation:** take a high-resolution ocean simulation of the
-   Gulf Stream (e.g., ~1 km regional model) where *all* eddies are knowable from the
-   full 3-D state; sample it with the real SWOT orbit/swath geometry, noise, and gap
-   masks; run PET and the hybrid on the synthetic swaths; measure true recall by
-   construction. Problems: simulation realism (does the model produce frontal eddies
-   with the right statistics?), SWOT error-spectrum realism, and domain gap for any
-   *trained* component (fair for evaluating PET; shakier for evaluating the U-Net).
-6. **Independent sensor cross-validation:** frontal eddies are visible in SST (GOES /
-   VIIRS) and ocean-color imagery as backward-breaking waves along the north wall.
-   Match cloud-free SST scenes to SWOT passes; count SST-visible frontal eddies in the
-   swath footprint; compare with detections. Problems: cloud cover selection bias, SST
-   expression ≠ SSH expression (partially different eddy populations), matching
-   tolerance in space/time, and it needs its own (manual or algorithmic) SST detector.
-7. **Capture–recapture across repeat passes:** treat successive swath samplings of the
-   same region as independent "captures" of a persistent eddy population and estimate
-   the undetected fraction Lincoln–Petersen-style. Problems: eddy lifetimes (days to
-   weeks) vs 10.5-day revisit alias; detection probabilities are heterogeneous
-   (size/position-dependent), violating the classical assumptions; needs tracking.
+Deliberately *not* a list of our preferred solutions — just constraints that shape
+feasibility:
 
-Our current inclination: (1) + (2) as the immediate practical pair, (5) as the
-rigorous backbone if the simulation realism holds, (4) as the most promising way to
-*reduce* (not just measure) the miss rate. We would value a view on whether (7) can be
-made assumption-honest, whether (5)'s domain gap invalidates it for the learned
-component, and whether there is a smarter estimator we haven't considered.
+- Compute: laptop CPU for inference-scale work; Colab GPUs (L4/A100) for training.
+  Full-archive reprocessing (all 1,288 granules) costs hours, not days.
+- Expert labeling capacity exists but is scarce (a few hours at a time); an exhaustive
+  ~20-pass "gold" annotation set is feasible and already contemplated but not built.
+- All per-detection artifacts are joinable on a stable key: raw fields, PET contours,
+  hand labels, front distances, model scores.
+- The 21-day cycle gives ~2 swath revisits of any point per cycle in this region;
+  no cross-pass eddy tracking has been built.
+- External data (other sensors, ocean-model output, gridded altimetry) is on the table
+  — nothing restricts the answer to SWOT-only.
 
 ## 11. Numbers at a glance
 
