@@ -1,22 +1,26 @@
 """Run the v2 frontal-eddy U-Net on a regridded SWOT GeoZarr store (swot-viewer data).
 
-Reads one pass slice from the pyramid store (zarr v3 over HTTP/S3; level-0 arrays
+Reads pass slices from the pyramid store (zarr v3 over HTTP/S3; level-0 arrays
 `0/ssha`, `0/adt`, 1-D `0/latitude` (ascending) / `0/longitude`, `slices.json` manifest),
 builds the model's 4-channel input (ssha, adt, |grad adt|, validity), tiles 128x128 with
-64-px overlap in BOTH dimensions, and writes detections as GeoJSON polygons for MapLibre.
+64-px overlap in BOTH dimensions, and writes detections as GeoJSON polygons for MapLibre
+(feature properties: id, lon, lat, max_p, area_km2, radius_km, cycle, pass, date, time).
 
 CAVEAT (documented distribution shift): the model was trained on L3 swath-frame passes
 (along-track rows, 2 km pixels); this store is L2 regridded to a 0.02 deg lat/lon
-lattice. Pixel size and orientation are similar in the Gulf Stream, and the validity
-channel handles off-swath NaNs, but treat results as experimental until visually vetted.
+lattice. Results are experimental until visually vetted.
 
-Run with an environment that has zarr>=3 AND torch (the swot-250m-geozarr venv after
-`uv pip install torch`):
+Run with an environment that has zarr>=3 AND torch (the swot-250m-geozarr venv):
 
-  /mnt/c/Users/jspier/swot-250m-geozarr/.venv/bin/python scripts/predict_zarr.py \
-      --slice 42 [--store URL] [--bbox lon0 lat0 lon1 lat1] [--thresh 0.348] [--png]
+  # one pass:
+  .../swot-250m-geozarr/.venv/bin/python scripts/predict_zarr.py --cycle 42 --pass 91 --png
+  # every slice in the store (resumable; writes combined all_eddies.geojson):
+  .../swot-250m-geozarr/.venv/bin/python scripts/predict_zarr.py --all
 
-Outputs out/aoi5/predictions/zarr_c<cycle>_p<pass>_eddies.geojson (+ optional quicklook).
+Outputs in out/aoi5/predictions/:
+  zarr_c<cycle>_p<pass>_eddies.geojson   single-slice mode
+  all_eddies.geojson                     --all mode (one FeatureCollection, filter by
+                                         cycle/pass/date properties in the viewer)
 """
 from __future__ import annotations
 
@@ -59,6 +63,9 @@ def main():
     ap.add_argument("--slice", type=int, default=None, help="time index (see slices.json)")
     ap.add_argument("--cycle", type=int, default=None)
     ap.add_argument("--pass", dest="pnum", type=int, default=None)
+    ap.add_argument("--all", action="store_true",
+                    help="every slice in the store -> one combined all_eddies.geojson "
+                         "(resumable via checkpoint)")
     ap.add_argument("--bbox", nargs=4, type=float, default=DEFAULT_BBOX,
                     metavar=("LON0", "LAT0", "LON1", "LAT1"))
     ap.add_argument("--weights", default=None)
@@ -74,6 +81,8 @@ def main():
     from swot_eddy.unet import build_unet, normalize, TILE
 
     root = Path(__file__).resolve().parents[1]
+    out_dir = root / "out/aoi5/predictions"
+    out_dir.mkdir(parents=True, exist_ok=True)
     wpath = Path(args.weights) if args.weights else root / "out/aoi5/model/unet_frontal_v2.pt"
     thresh = args.thresh if args.thresh is not None else \
         float(np.load(root / "out/aoi5/model/lam_hat_v2.npy")[0])
@@ -82,88 +91,116 @@ def main():
     model.eval()
 
     slices = json.load(urllib.request.urlopen(args.store + "/slices.json"))
-    if args.slice is not None:
-        meta = slices[args.slice]
-    else:
-        meta = next(s for s in slices
-                    if s["cycle"] == args.cycle and s["pass"] == args.pnum)
-    t = meta["i"]
-    print(f"slice {t}: cycle {meta['cycle']} pass {meta['pass']} {meta['time']}")
-
     g = zarr.open_group(args.store, mode="r")
     lat = np.asarray(g["0/latitude"][:])
     lon = np.asarray(g["0/longitude"][:])
     lon0, lat0, lon1, lat1 = args.bbox
     y0, y1 = np.searchsorted(lat, [lat0, lat1])
     x0, x1 = np.searchsorted(lon, [lon0, lon1])
-    ssha = np.asarray(g["0/ssha"][t, y0:y1, x0:x1], dtype="float64")
-    adt = np.asarray(g["0/adt"][t, y0:y1, x0:x1], dtype="float64")
     lat_s, lon_s = lat[y0:y1], lon[x0:x1]
-    finite = np.isfinite(ssha)
-    print(f"subset {ssha.shape}, finite {finite.mean():.1%}")
-    if finite.mean() < 0.005:
-        print("swath barely intersects bbox — nothing to do")
-        return
-
-    # |grad ADT| in m/km on the lat/lon lattice (anisotropic spacing)
     dlat = float(np.median(np.diff(lat_s))) * KM_PER_DEG_LAT
     dlon = float(np.median(np.diff(lon_s))) * KM_PER_DEG_LAT * \
         float(np.cos(np.deg2rad(np.mean(lat_s))))
-    gy, gx = np.gradient(adt)
-    grad = np.hypot(gy / dlat, gx / dlon)
-    x = np.stack([ssha, adt, grad, finite.astype("float64")])
 
-    prob = np.zeros(ssha.shape, np.float32)
-    hits = np.zeros(ssha.shape, np.float32)
-    with torch.no_grad():
-        for i0, j0, w in tile2d(x, TILE, 64):
-            if not np.isfinite(w[0]).any():
+    def predict_slice(meta):
+        """Features (+ debug fields) for one time slice; [] when swath misses the bbox."""
+        t = meta["i"]
+        ssha = np.asarray(g["0/ssha"][t, y0:y1, x0:x1], dtype="float64")
+        finite = np.isfinite(ssha)
+        if finite.mean() < 0.003:
+            return [], None, None
+        adt = np.asarray(g["0/adt"][t, y0:y1, x0:x1], dtype="float64")
+        gy, gx = np.gradient(adt)
+        grad = np.hypot(gy / dlat, gx / dlon)
+        x = np.stack([ssha, adt, grad, finite.astype("float64")])
+
+        prob = np.zeros(ssha.shape, np.float32)
+        hits = np.zeros(ssha.shape, np.float32)
+        with torch.no_grad():
+            for i0, j0, w in tile2d(x, TILE, 64):
+                if not np.isfinite(w[0]).any():
+                    continue
+                p = torch.sigmoid(model(torch.from_numpy(normalize(w))[None]))[0, 0].numpy()
+                ie, je = min(i0 + TILE, prob.shape[0]), min(j0 + TILE, prob.shape[1])
+                prob[i0:ie, j0:je] += p[:ie - i0, :je - j0]
+                hits[i0:ie, j0:je] += 1
+        prob /= np.maximum(hits, 1)
+        mask = (prob > thresh) & finite
+
+        lbl, n = ndimage.label(mask)
+        feats = []
+        for k in range(1, n + 1):
+            blob = lbl == k
+            area_km2 = float(blob.sum()) * dlat * dlon
+            if area_km2 < 50:                      # sub-grid speckle
                 continue
-            p = torch.sigmoid(model(torch.from_numpy(normalize(w))[None]))[0, 0].numpy()
-            ie, je = min(i0 + TILE, prob.shape[0]), min(j0 + TILE, prob.shape[1])
-            prob[i0:ie, j0:je] += p[:ie - i0, :je - j0]
-            hits[i0:ie, j0:je] += 1
-    prob /= np.maximum(hits, 1)
-    mask = (prob > thresh) & finite
+            cy, cx = (int(v) for v in ndimage.center_of_mass(blob))
+            rings = []
+            for c in measure.find_contours(blob.astype(float), 0.5):
+                ring = [[round(float(np.interp(p[1], np.arange(len(lon_s)), lon_s)), 4),
+                         round(float(np.interp(p[0], np.arange(len(lat_s)), lat_s)), 4)]
+                        for p in c[::2]]
+                if len(ring) >= 4:
+                    ring.append(ring[0])
+                    rings.append(ring)
+            if not rings:
+                continue
+            feats.append({
+                "type": "Feature",
+                "geometry": {"type": "Polygon", "coordinates": [max(rings, key=len)]},
+                "properties": {
+                    "id": len(feats) + 1,
+                    "lon": round(float(lon_s[cx]), 3), "lat": round(float(lat_s[cy]), 3),
+                    "max_p": round(float(prob[blob].max()), 3),
+                    "area_km2": round(area_km2, 0),
+                    "radius_km": round(float(np.sqrt(area_km2 / np.pi)), 1),
+                    "cycle": meta["cycle"], "pass": meta["pass"],
+                    "date": meta["date"], "time": meta["time"],
+                }})
+        return feats, ssha, prob
 
-    lbl, n = ndimage.label(mask)
-    feats = []
-    for k in range(1, n + 1):
-        blob = lbl == k
-        area_km2 = float(blob.sum()) * dlat * dlon
-        if area_km2 < 50:                      # sub-grid speckle
-            continue
-        cy, cx = (int(v) for v in ndimage.center_of_mass(blob))
-        rings = []
-        for c in measure.find_contours(blob.astype(float), 0.5):
-            ring = [[round(float(np.interp(p[1], np.arange(len(lon_s)), lon_s)), 4),
-                     round(float(np.interp(p[0], np.arange(len(lat_s)), lat_s)), 4)]
-                    for p in c[::2]]
-            if len(ring) >= 4:
-                ring.append(ring[0])
-                rings.append(ring)
-        if not rings:
-            continue
-        feats.append({
-            "type": "Feature",
-            "geometry": {"type": "Polygon", "coordinates": [max(rings, key=len)]},
-            "properties": {
-                "id": len(feats) + 1,
-                "lon": round(float(lon_s[cx]), 3), "lat": round(float(lat_s[cy]), 3),
-                "max_p": round(float(prob[blob].max()), 3),
-                "area_km2": round(area_km2, 0),
-                "radius_km": round(float(np.sqrt(area_km2 / np.pi)), 1),
-                "cycle": meta["cycle"], "pass": meta["pass"], "time": meta["time"],
-            }})
+    header = {"model": wpath.name, "threshold": round(thresh, 3), "store": args.store,
+              "caveat": "model trained on L3 swath-frame data; "
+                        "regridded-L2 results are experimental"}
 
-    gj = {"type": "FeatureCollection",
-          "properties": {"model": wpath.name, "threshold": round(thresh, 3),
-                         "store": args.store, "slice": t,
-                         "caveat": "model trained on L3 swath-frame data; "
-                                   "regridded-L2 results are experimental"},
+    if args.all:
+        ckpt_path = out_dir / "all_eddies_checkpoint.json"
+        ck = json.loads(ckpt_path.read_text()) if ckpt_path.exists() else \
+            {"done": [], "features": []}
+        done = set(ck["done"])
+        todo = [s for s in slices if s["i"] not in done]
+        print(f"{len(slices)} slices; {len(done)} done, {len(todo)} left")
+        for n, meta in enumerate(todo, 1):
+            try:
+                feats, _, _ = predict_slice(meta)
+            except Exception as e:
+                print(f"  ERROR slice {meta['i']} c{meta['cycle']}/p{meta['pass']}: "
+                      f"{type(e).__name__}: {e}")
+                continue                                  # retry on next run
+            ck["features"].extend(feats)
+            ck["done"].append(meta["i"])
+            if n % 20 == 0 or n == len(todo):
+                ckpt_path.write_text(json.dumps(ck))
+                print(f"  [{n}/{len(todo)}] c{meta['cycle']}/p{meta['pass']}: "
+                      f"{len(feats)} eddies (total {len(ck['features'])})")
+        out = out_dir / "all_eddies.geojson"
+        out.write_text(json.dumps({"type": "FeatureCollection", "properties": header,
+                                   "features": ck["features"]}))
+        print(f"{len(ck['features'])} eddies over {len(ck['done'])} slices -> {out}")
+        return
+
+    if args.slice is not None:
+        meta = slices[args.slice]
+    else:
+        meta = next(s for s in slices
+                    if s["cycle"] == args.cycle and s["pass"] == args.pnum)
+    print(f"slice {meta['i']}: cycle {meta['cycle']} pass {meta['pass']} {meta['time']}")
+    feats, ssha, prob = predict_slice(meta)
+    if ssha is None:
+        print("swath barely intersects bbox — nothing to do")
+        return
+    gj = {"type": "FeatureCollection", "properties": {**header, "slice": meta["i"]},
           "features": feats}
-    out_dir = root / "out/aoi5/predictions"
-    out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / f"zarr_c{meta['cycle']:03d}_p{meta['pass']:03d}_eddies.geojson"
     out.write_text(json.dumps(gj))
     print(f"{len(feats)} eddies -> {out}")
@@ -172,6 +209,7 @@ def main():
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
+        finite = np.isfinite(ssha)
         fig, axes = plt.subplots(1, 2, figsize=(11, 7))
         v1, v2 = np.nanpercentile(ssha, 2), np.nanpercentile(ssha, 98)
         axes[0].pcolormesh(lon_s, lat_s, ssha, cmap="RdBu_r", vmin=v1, vmax=v2)
