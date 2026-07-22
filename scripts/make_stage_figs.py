@@ -186,6 +186,28 @@ fig.suptitle("7. U-Net input: 4 RAW channels — no inpainting, gaps stay gaps")
 save(fig, "step07_unet_inputs",
      "7 · U-Net branch input — native fields plus a validity mask; the network learns to work around the gaps instead of trusting invented pixels.")
 
+# ---- step 7b: the ADT front line (the frontal concept) -------------------------
+from skimage.measure import find_contours
+adt = x_raw[1]
+level = float(cfg["features"]["front_level_m"])
+fronts = [c for c in find_contours(adt, level, mask=np.isfinite(adt))
+          if len(c) >= 20 and not np.allclose(c[0], c[-1])]      # OPEN contours = jet
+fig, ax = plt.subplots(figsize=(3.9, 7))
+ax.imshow(adt, cmap="Spectral_r", vmin=-0.1, vmax=0.8, origin="lower", aspect="auto")
+for c in fronts:
+    ax.plot(c[:, 1], c[:, 0], color="#B8860B", lw=2.0)
+for d in kept:
+    if d.contour_pix:
+        cp = np.array(d.contour_pix)
+        ax.plot(cp[:, 1], cp[:, 0], color=C_KEEP, lw=1.2)
+ax.set_title(f"7b. ADT {level:.2f} m front line (gold)\n"
+             "frontal eddies hug its inshore side")
+save(fig, "step07b_adt_front",
+     f"7b · The frontal concept — the open ADT {level:.2f} m contour traces the Gulf "
+     "Stream jet through the swath; frontal eddies live within ~50 km of it, inshore. "
+     "This line bootstrapped the training labels (AUC 0.95) and feeds the model via the "
+     "gradient channel.")
+
 # ---- step 8: probability ------------------------------------------------------
 model = U.build_unet(in_ch=4)
 model.load_state_dict(torch.load(ROOT / "out/aoi5/model/unet_frontal_v2.pt",
