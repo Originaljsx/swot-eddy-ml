@@ -1,7 +1,0 @@
-file 'media/videos/script_v2/480p15/Scene1_Input.mp4'
-file 'media/videos/script_v2/480p15/Scene2_CropTile.mp4'
-file 'media/videos/script_v2/480p15/Scene3_Inpaint.mp4'
-file 'media/videos/script_v2/480p15/Scene4_PET.mp4'
-file 'media/videos/script_v2/480p15/Scene5_UNet.mp4'
-file 'media/videos/script_v2/480p15/Scene6_Hybrid.mp4'
-file 'media/videos/script_v2/480p15/Scene7_Outro.mp4'
