@@ -101,6 +101,19 @@ Runs on CPU; a pass takes ~20 s (PET + U-Net). For a U-Net-only pass (no
 py-eddy-tracker, no inpainting, ~15 s, conformal miss-rate guarantee but lower
 precision) use `scripts/predict_frontal.py GRANULE.nc --v2 --conformal --report`.
 
+## The labeled dataset
+
+`out/aoi5/release/labeled_eddies_aoi5.csv` — the 2,217 hand-labeled eddies
+(903 frontal / 1,045 reject / 168 open ocean / 95 coastal / 6 skip) joined to the
+full py-eddy-tracker catalog: date, polarity, lon, lat, speed radius, effective
+radius, **amplitude**, gap and nadir fractions, and the human label with its
+timestamp. `labeled_eddies_contours.csv` carries the PET contour vertices
+(lon/lat + pixel coords) for every labeled eddy. Both are regenerated from the
+raw catalog + labels by `scripts/export_labeled_dataset.py`, which asserts a
+1:1 join and exact lon/lat agreement. The unjoined sources are also versioned:
+`out/aoi5/catalog/detections.csv` (all 15,641 PET detections) and
+`out/aoi5/labels/eddy_labels_aoi5.csv`.
+
 ## Repository map
 
 | Stage | Code | Output |

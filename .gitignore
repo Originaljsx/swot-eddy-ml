@@ -16,6 +16,10 @@ out/aoi5/catalog/*
 !out/aoi5/model/
 out/aoi5/model/*
 !out/aoi5/model/unet_frontal_v2.pt
+!out/aoi5/release/
+out/aoi5/release/*
+!out/aoi5/release/labeled_eddies_aoi5.csv
+!out/aoi5/release/labeled_eddies_contours.csv
 weights/
 checkpoints/
 # python
