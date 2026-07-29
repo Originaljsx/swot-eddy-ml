@@ -13,6 +13,9 @@ out/aoi5/labels/*
 out/aoi5/catalog/*
 !out/aoi5/catalog/detections.csv
 !out/aoi5/catalog/passes_done.csv
+!out/aoi5/model/
+out/aoi5/model/*
+!out/aoi5/model/unet_frontal_v2.pt
 weights/
 checkpoints/
 # python
