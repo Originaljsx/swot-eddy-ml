@@ -1,5 +1,9 @@
 # SWOT Gulf Stream Eddy Detection
 
+[![AI-assisted: written by a human with help from AI tools](https://img.shields.io/static/v1?label=&message=AI-assisted&color=gold)](https://nasa-ammos.github.io/slim/?search=Badges)
+[![Best Practices from SLIM: this project follows SLIM best practices](https://img.shields.io/badge/Best%20Practices%20from-SLIM-blue)](https://nasa-ammos.github.io/slim/)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
+
 Machine-learning detection of frontal eddies in [SWOT](https://podaac.jpl.nasa.gov/SWOT)
 altimetry over the Gulf Stream. The production detector is a hybrid:
 py-eddy-tracker proposes closed-contour eddies on an inpainted pass, and a small
