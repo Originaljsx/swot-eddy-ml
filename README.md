@@ -90,9 +90,15 @@ registered, download it via the AVISO+ FTP or THREDDS server (SWOT L3 products,
 SWOT_L3_LR_SSH_Expert_002_007_20230811T072733_20230811T081900_v3.0.nc
 ```
 
-(`002` = 21-day repeat cycle, `091` = pass number). A single granule is enough to run
-the detector — Gulf Stream passes in this project's catalog include e.g. cycle 002
-pass 091. The batch scripts (`scripts/run_all.py`, `scripts/run_hybrid_all.py`)
+(`002` = 21-day repeat cycle, `007` = pass number). A single granule is enough to run
+the detector. The 27 passes crossing the study area (any cycle) are:
+
+```
+007 020 035 048 063 076 091 104 119 132 160 188 270 285
+298 313 326 341 354 369 382 397 410 425 438 466 576
+```
+
+The batch scripts (`scripts/run_all.py`, `scripts/run_hybrid_all.py`)
 expect granules laid out as `<data_root>/cycle_002/SWOT_L3_LR_SSH_Expert_*.nc`;
 `scripts/predict_hybrid.py` takes any explicit path and ignores `data_root`.
 
