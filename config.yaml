@@ -73,6 +73,12 @@ pet:
     # PET pixel_limit (min,max) pixels inside contour. de Marez = PET-standard (4,1000).
     pixel_limit_min: 4
     pixel_limit_max: 1000
+    # Max local extrema allowed inside a candidate contour (PET mle, default 1).
+    # 1 (CSS11 single-extremum) rejects real flat-cored eddies whose core holds several
+    # near-equal minima -- e.g. the SAR-confirmed 21 cm cyclone at (-78.7, 31.8) on
+    # cycle 002 pass 369, whose 3 minima within 0.2 cm made every contour level fail.
+    # 3 recovers those; validated against the stock cycle-002 catalog (batch_mle1).
+    mle: 3
     high_pass_km: null     # NO high-pass / detrending (paper runs on filtered SLA as-is)
 
 # Example file for the inspection script (Task 2), RELATIVE to the active platform's

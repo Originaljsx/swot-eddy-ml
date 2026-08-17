@@ -62,6 +62,7 @@ def _pet_params(cfg: dict) -> dict:
         "step": p["min_amplitude_m"] / 2.0,    # nb_step_min=2 -> amplitude floor = min_amplitude_m
         "shape_error": p["shape_error"],       # 85
         "pixel_limit": (p.get("pixel_limit_min", 4), p.get("pixel_limit_max", 1000)),
+        "mle": p.get("mle", 1),                # max local extrema per contour (PET default 1)
         "min_radius_km": p["min_radius_km"],   # post-filter on R_max (radius_s)
         "gap_reject_frac": p["gap_reject_frac"],
         "gap_reject_frac_nadir": p["gap_reject_frac_nadir"],
@@ -190,7 +191,7 @@ def detect_tile(tile, tile_index: int, cfg: dict,
         anticyc, cyc = grid.eddy_identification(
             "ssha", "u", "v", date,
             step=params["step"], shape_error=params["shape_error"],
-            pixel_limit=params["pixel_limit"],
+            pixel_limit=params["pixel_limit"], mle=params["mle"],
             force_height_unit="m", force_speed_unit="m/s",
         )
     except (UnboundLocalError, ValueError) as exc:
