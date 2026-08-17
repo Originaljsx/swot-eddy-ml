@@ -74,15 +74,36 @@ build the environment from `environment.yml`, which also installs py-eddy-tracke
 from GitHub.
 
 `config.yaml` auto-detects the platform (windows / wsl / colab) and resolves data
-paths; override the detection with `SWOT_EDDY_ENV=wsl|windows|colab`.
+paths; override the detection with `SWOT_EDDY_ENV=wsl|windows|colab`. **Edit the
+`paths:` block in `config.yaml`** so `data_root` points at your granule directory and
+`out_root` at this repo's `out/` — the defaults are the author's machine.
+
+## Get the data
+
+The input product is **SWOT Level-3 LR SSH v3.0, *Expert* variant** (AVISO/CNES),
+one NetCDF file per half-orbit pass. It is free but requires an
+[AVISO+ account](https://www.aviso.altimetry.fr/en/data/data-access.html); once
+registered, download it via the AVISO+ FTP or THREDDS server (SWOT L3 products,
+`l3_lr_ssh`, *Expert* variant). Granule filenames look like
+
+```
+SWOT_L3_LR_SSH_Expert_002_007_20230811T072733_20230811T081900_v3.0.nc
+```
+
+(`002` = 21-day repeat cycle, `091` = pass number). A single granule is enough to run
+the detector — Gulf Stream passes in this project's catalog include e.g. cycle 002
+pass 091. The batch scripts (`scripts/run_all.py`, `scripts/run_hybrid_all.py`)
+expect granules laid out as `<data_root>/cycle_002/SWOT_L3_LR_SSH_Expert_*.nc`;
+`scripts/predict_hybrid.py` takes any explicit path and ignores `data_root`.
 
 ## Verify the install
 
 ```bash
 python -c "import py_eddy_tracker; print('PET OK')"          # imports cleanly
 python -m swot_eddy.pet_version                                # pins pet_version into config.yaml
-python -m swot_eddy.inspect_nc --out out/inspect_002_091.json # dumps a real granule
 pytest -q                                                     # all tests green
+# with at least one granule under data_root:
+python -m swot_eddy.inspect_nc --out out/inspect_002_091.json # dumps a real granule
 ```
 
 ## Running the detector

@@ -13,13 +13,13 @@ paths:
     data_root: "/content/drive/MyDrive/SWOT_L3_GulfStream"
     out_root:  "/content/drive/MyDrive/swot-eddy-ml/out"
 
-aoi:              # GS_AOI5 polygon (concave; clips SE open ocean, keeps Gulf Stream + inland).
-  # Single source of truth for the study area. load_config() derives the crop ENVELOPE
-  # (region, below) from this polygon; detections are filtered to the true polygon by
-  # center point-in-polygon (src/swot_eddy/aoi.py). See docs/.../2026-06-25-aoi5-*-design.md.
-  windows: "C:/Users/jspier/Bbox/GS_AOI5.json"
-  wsl:     "/mnt/c/Users/jspier/Bbox/GS_AOI5.json"
-  colab:   "/content/drive/MyDrive/Bbox/GS_AOI5.json"
+# GS_AOI5 polygon (concave; clips SE open ocean, keeps Gulf Stream + inland).
+# Single source of truth for the study area, versioned in the repo. load_config()
+# derives the crop ENVELOPE (region, below) from this polygon; detections are filtered
+# to the true polygon by center point-in-polygon (src/swot_eddy/aoi.py).
+# Relative paths resolve against the repo root; a per-platform dict of absolute
+# paths (windows/wsl/colab keys) is also accepted.
+aoi: "config/GS_AOI5.json"
 
 region:           # SUPERSEDED by aoi: load_config() OVERWRITES this with the AOI5 polygon
   # envelope at runtime. Values below are only a fallback if cfg['aoi'] is absent.

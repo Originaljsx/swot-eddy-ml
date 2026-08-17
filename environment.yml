@@ -4,14 +4,22 @@ channels:
 dependencies:
   - python=3.11
   - pip
-  - numpy
+  - numpy<2
   - scipy
   - xarray
   - netcdf4
   - matplotlib
   - pyyaml
   - pytest
+  - pandas
+  - shapely
+  - cartopy
+  - scikit-image=0.24.0
+  - ipywidgets
+  - pytorch-cpu    # U-Net; swap for pytorch + a CUDA build if you want GPU training
   - pip:
       # PyPI pyEddyTracker (3.6.1) pins numpy<1.23 / numba<0.56 / netCDF4<1.6 and is
       # uninstallable on Python >=3.12. Install the maintained GitHub master instead.
       - "git+https://github.com/AntSimi/py-eddy-tracker.git"
+      # The project itself (run `conda env create` from the repo root).
+      - "-e ."

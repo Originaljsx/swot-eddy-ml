@@ -62,9 +62,20 @@ def _load_geojson(path: Path):
 
 
 def aoi_path(cfg: dict[str, Any]) -> Path:
-    """Resolve the AOI geojson path for the active platform (windows/wsl/colab)."""
-    plat = cfg.get("platform") or "wsl"
-    return Path(cfg["aoi"][plat])
+    """Resolve the AOI geojson path.
+
+    cfg['aoi'] is either a single path (absolute, or relative to the repo root — the
+    versioned default, config/GS_AOI5.json) or a legacy per-platform dict
+    (windows/wsl/colab) of absolute paths."""
+    spec = cfg["aoi"]
+    if isinstance(spec, dict):
+        plat = cfg.get("platform") or "wsl"
+        return Path(spec[plat])
+    p = Path(spec)
+    if p.is_absolute():
+        return p
+    from swot_eddy.config import CONFIG_PATH
+    return CONFIG_PATH.parent / p
 
 
 @lru_cache(maxsize=4)
