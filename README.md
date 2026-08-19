@@ -11,6 +11,13 @@ U-Net trained on raw (non-inpainted) fields scores each one for frontal-ness.
 One command turns a raw SWOT Level-3 LR SSH Expert granule into every
 closed-contour eddy in the pass, frontal ones flagged with a confidence score.
 
+**`scripts/predict_hybrid.py` is the only supported inference entrypoint** — it
+takes a raw NetCDF granule and the versioned weights, nothing else. Everything
+under `scripts/experimental/` (regridded-zarr predictor, L2-zarr fetcher, L3-vs-L2
+comparison) is a research spike on a different, unreleased data source, needs a
+separate zarr>=3 environment, and is not meant to be served — see that
+directory's own docstrings before touching it.
+
 `docs/PIPELINE.md` is the full end-to-end record of how the project got from raw
 granules to the trained model. This README is the short version and the setup
 guide.
@@ -155,8 +162,9 @@ raw catalog + labels by `scripts/export_labeled_dataset.py`, which asserts a
 | Contours | `scripts/export_contours.py` | `out/aoi5/catalog/contours*.csv` |
 | Training data | `scripts/build_masks.py` | `out/aoi5/training[_v2]/` |
 | Model | `src/swot_eddy/unet.py`, notebooks 04–05 | `out/aoi5/model/unet_frontal[_v2].pt` |
-| Inference (hybrid) | `scripts/predict_hybrid.py` | `out/aoi5/predictions/*_hybrid.{csv,geojson,png}` |
+| Inference (hybrid, supported) | `scripts/predict_hybrid.py` | `out/aoi5/predictions/*_hybrid.{csv,geojson,png}` |
 | Inference (U-Net only) | `scripts/predict_frontal.py` | `out/aoi5/predictions/` |
+| Experimental (L2-zarr, not served) | `scripts/experimental/{predict_zarr,predict_hybrid_gridded,fetch_zarr_window,make_compare_l3_l2z}.py` | `out/aoi5/predictions/`, `out/aoi5/l2zarr/` |
 | Figures | `scripts/make_{paper_figs,report_hybrid,pass_gallery,stage_figs}.py` | `out/aoi5/{paper_figs,report_hybrid,pass_gallery,stage_figs}/` |
 
 ## Further reading

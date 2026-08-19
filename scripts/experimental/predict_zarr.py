@@ -32,7 +32,7 @@ from pathlib import Path
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 DEFAULT_STORE = "https://d1ef9node0gwi2.cloudfront.net/c42_43_expert_pyramid_v2.zarr"
 DEFAULT_BBOX = (-82.5, 23.0, -68.0, 41.0)          # GS_AOI5 envelope-ish
@@ -80,7 +80,7 @@ def main():
     from skimage import measure
     from swot_eddy.unet import build_unet, normalize, TILE
 
-    root = Path(__file__).resolve().parents[1]
+    root = Path(__file__).resolve().parents[2]
     out_dir = root / "out/aoi5/predictions"
     out_dir.mkdir(parents=True, exist_ok=True)
     wpath = Path(args.weights) if args.weights else root / "out/aoi5/model/unet_frontal_v2.pt"

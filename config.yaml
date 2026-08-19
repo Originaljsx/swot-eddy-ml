@@ -86,8 +86,9 @@ pet:
 example_file: "cycle_043/SWOT_L3_LR_SSH_Expert_043_410_20251228T034857_20251228T044023_v3.0.nc"
 
 # SWOT JPL L2 regridded GeoZarr/icechunk store (equirectangular 0.02, cycles 1-50).
-# Read by scripts/fetch_zarr_window.py + scripts/predict_hybrid_gridded.py only;
-# the L3 swath chain never touches this block.
+# EXPERIMENTAL, not the production path: read by scripts/experimental/fetch_zarr_window.py
+# + scripts/experimental/predict_hybrid_gridded.py only. The L3 swath chain
+# (scripts/predict_hybrid.py, the supported entrypoint) never touches this block.
 l2zarr:
   store: "s3://swot-zarr/ice/c001_002_expert.icechunk"
   s3_region: "us-west-2"

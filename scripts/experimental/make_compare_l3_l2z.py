@@ -30,7 +30,7 @@ import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 from cartopy.mpl.gridliner import LONGITUDE_FORMATTER, LATITUDE_FORMATTER
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 from swot_eddy.config import load_config
 from swot_eddy import preprocess as pp
 
@@ -83,7 +83,7 @@ def main():
     ap.add_argument("--pass", dest="pass_num", type=int, required=True)
     args = ap.parse_args()
 
-    root = Path(__file__).resolve().parents[1]
+    root = Path(__file__).resolve().parents[2]
     pred = root / "out/aoi5/predictions"
     tag = f"{args.cycle:03d}_{args.pass_num:03d}"
 

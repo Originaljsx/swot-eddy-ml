@@ -38,7 +38,7 @@ warnings.filterwarnings("ignore", message=r".*partition.*will ignore the 'mask'.
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 from swot_eddy.config import load_config
 from swot_eddy.aoi import load_aoi
 from swot_eddy import unet as U
@@ -49,7 +49,7 @@ KM_PER_DEG_LON_EQ = 111.320
 
 
 def fetch_window(cfg, cycle, pass_num, refetch):
-    root = Path(__file__).resolve().parents[1]
+    root = Path(__file__).resolve().parents[2]
     lz = cfg["l2zarr"]
     out_dir = root / lz["out_dir"]
     pat = f"SWOT_L2Z_Expert_{cycle:03d}_{pass_num:03d}_*.nc"
@@ -163,7 +163,7 @@ def main():
 
     cfg = load_config()
     aoi = load_aoi(cfg)
-    root = Path(__file__).resolve().parents[1]
+    root = Path(__file__).resolve().parents[2]
 
     if args.window:
         wpath_nc = Path(args.window)
