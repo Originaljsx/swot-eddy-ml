@@ -1,5 +1,7 @@
 # SWOT Gulf Stream Eddy Detection
 
+![Detected frontal eddy, pass 091 cycle 043](docs/figures/eddy_043_091_11.png)
+
 [![AI-assisted: written by a human with help from AI tools](https://img.shields.io/static/v1?label=&message=AI-assisted&color=gold)](https://nasa-ammos.github.io/slim/?search=Badges)
 [![Best Practices from SLIM: this project follows SLIM best practices](https://img.shields.io/badge/Best%20Practices%20from-SLIM-blue)](https://nasa-ammos.github.io/slim/)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
